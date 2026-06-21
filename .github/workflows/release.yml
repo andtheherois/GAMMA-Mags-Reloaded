@@ -1,0 +1,72 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - '*'
+      
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # Fetch all history for all tags and branches
+
+      - name: Setup Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyGithub
+
+      - name: Zip first folder and create release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          import os
+          import zipfile
+          from github import Github
+
+          # Initialize GitHub API
+          g = Github(os.getenv('GITHUB_TOKEN'))
+          repo = g.get_repo(os.getenv('GITHUB_REPOSITORY'))
+          tag_name = os.getenv('GITHUB_REF').split('/')[-1]
+
+          # Find the first folder not starting with "."
+          dirs = [d for d in os.listdir('.') if os.path.isdir(d) and not d.startswith('.')]
+          if dirs:
+              folder_name = dirs[0]
+              zip_name = f"{folder_name}-{tag_name}.zip"
+
+              # Zip the contents inside the folder, not including the folder itself
+              with zipfile.ZipFile(zip_name, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                  for root, _, files in os.walk(folder_name):
+                      for file in files:
+                          file_path = os.path.join(root, file)
+                          arcname = os.path.relpath(file_path, folder_name)
+                          zipf.write(file_path, arcname)
+
+              # Upload the zip file to a new release
+              release = repo.create_git_release(tag=tag_name, name=tag_name, message="", draft=False, prerelease=False)
+              release.upload_asset(zip_name)
+
+              # Generate patch notes
+              tags = sorted(repo.get_tags(), key=lambda t: t.commit.commit.author.date, reverse=True)
+              previous_tag = tags[1].name if len(tags) > 1 else None
+              if previous_tag:
+                  comparison = repo.compare(previous_tag, tag_name)
+                  patch_notes = '\n'.join([commit.commit.message for commit in comparison.commits])
+                  release.update_release(name=tag_name, message=patch_notes, draft=False, prerelease=False)
+          else:
+              print("No suitable folder found.")
+
+        shell: python
