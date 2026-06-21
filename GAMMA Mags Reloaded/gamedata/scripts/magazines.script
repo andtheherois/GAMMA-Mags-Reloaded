@@ -198,12 +198,12 @@ end
 
 -- return the section of the ammo loaded in weapon
 function get_sec_chambered(wpn)
-	local id = wpn:id()
-	local index = wpn:get_ammo_type()
-	if wpn:get_ammo_in_magazine() > 0 then
-		local ammo_map = invert_table(get_ammo_map(id))
-		return ammo_map[index + 1]
-	else return nil end
+	if wpn:get_ammo_in_magazine() <= 0 then return nil end
+	local want = wpn:get_ammo_type() + 1
+	for sec, idx in pairs(get_ammo_map(wpn:id())) do
+		if idx == want then return sec end
+	end
+	return nil
 end
 
 function retain_round(weapon)
