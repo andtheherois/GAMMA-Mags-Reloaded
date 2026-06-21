@@ -1,0 +1,48 @@
+-- By Verdatim 23/5/2026, commissioned by ATHI
+
+-- Changes the mag stat in the weapon ui to the magazine capacity of the loaded magazine in the weapon. If no magazine is there it will show 0
+
+local org_function = utils_item.get_param
+
+utils_item.get_param = function(section, id, param, typ, add)
+	local value = org_function(section, id, param, typ, add)
+	if param ~= "ammo_mag_size" then return value end
+	if magazines and magazine_binder then
+		if not magazine_binder.is_supported_weapon(id) then return value end
+		local data = magazine_binder.get_mag_loaded(id)
+		if not data then 
+			return 0
+		end
+		local mag_section = data.section
+		local max_mag_size = ini_sys:r_float_ex(mag_section, "max_mag_size") or 0
+		return max_mag_size
+	end
+	return value
+end
+
+local org_function_ui = utils_ui.get_stats_value
+
+utils_ui.get_stats_value = function(obj, sec, gr, stat)
+	local value = org_function_ui(obj, sec, gr, stat)
+	if stat ~= "ammo_mag_size" then return value end
+	--printf("value is %s, stat is %s", value, stat)
+	if magazines and magazine_binder then
+		if not magazine_binder.is_supported_weapon(sec) then 
+			--printf("not a supported weapon")
+			return value 
+		end
+		if not obj then
+			return value
+		end
+		local data = magazine_binder.get_mag_loaded(obj:id())
+		if not data then 
+			printf("returning 0")
+			return 0 
+		end
+		local mag_section = data.section
+		local max_mag_size = ini_sys:r_float_ex(mag_section, "max_mag_size") or 0
+		--printf("max_mag_size is %s", max_mag_size)
+		return max_mag_size
+	end
+	return value
+end

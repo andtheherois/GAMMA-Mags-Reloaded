@@ -1,0 +1,31 @@
+<w>
+	<file name = "ui\ui_ammo_tags">
+		<texture id = "ui_fast"				x="233"	y="0"	width="11"	height="13"/>		
+		<texture id = "ui_jam"				x="216"	y="0"	width="7"	height="22"/>	
+		<texture id = "ui_retool"			x="246"	y="0"	width="9"	height="14"/>	
+		<texture id = "ui_9x18"				x="0"	y="0"	width="9"	height="23"/>
+		<texture id = "ui_9x19"				x="9"	y="0"	width="9"	height="23"/>
+		<texture id = "ui_45"				x="18"	y="0"	width="9"	height="34"/>
+		<texture id = "ui_46x30"			x="27"	y="0"	width="9"	height="34"/>
+		<texture id = "ui_57x28"			x="36"	y="0"	width="9"	height="34"/>
+		<texture id = "ui_762x25"			x="45"	y="0"	width="9"	height="40"/>
+		<texture id = "ui_12x76"			x="54"	y="0"	width="9"	height="29"/>
+		<texture id = "ui_20x70"			x="63"	y="0"	width="9"	height="31"/>
+		<texture id = "ui_23x75"			x="72"	y="0"	width="9"	height="31"/>
+		<texture id = "ui_357"				x="81"	y="0"	width="9"	height="22"/>
+		<texture id = "ui_9x21"				x="90"	y="0"	width="9"	height="23"/>
+		<texture id = "ui_545x39"			x="99"	y="0"	width="9"	height="40"/>
+		<texture id = "ui_556x45"			x="108"	y="0"	width="9"	height="41"/>		
+		<texture id = "ui_762x39"			x="117"	y="0"	width="9"	height="40"/>	
+		<texture id = "ui_762x51"			x="126"	y="0"	width="9"	height="38"/>	
+		<texture id = "ui_762x54"			x="135"	y="0"	width="9"	height="40"/>	
+		<texture id = "ui_792x57"			x="144"	y="0"	width="9"	height="40"/>	
+		<texture id = "ui_68x51"			x="153"	y="0"	width="9"	height="32"/>	
+		<texture id = "ui_9x39"				x="162"	y="0"	width="9"	height="25"/>	
+		<texture id = "ui_338fed"			x="171"	y="0"	width="9"	height="34"/>	
+		<texture id = "ui_338lap"			x="180"	y="0"	width="9"	height="34"/>	
+		<texture id = "ui_50bmg"			x="189"	y="0"	width="9"	height="34"/>	
+		<texture id = "ui_127x55"			x="198"	y="0"	width="9"	height="38"/>	
+		<texture id = "ui_300blk"			x="207"	y="0"	width="9"	height="40"/>			
+	</file>
+</w>

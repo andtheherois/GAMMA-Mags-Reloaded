@@ -1,0 +1,7 @@
+<w>
+	<file name = "ui\ui_magpouches">
+		<texture id = "ui_icon_chevron1"			x="224"	y="7"	width="8"	height="6" />
+		<texture id = "ui_icon_chevron2"			x="236"	y="4"	width="8"	height="9" />
+		<texture id = "ui_icon_chevron3"			x="248"	y="1"	width="8"	height="12" />
+    </file>
+</w>

@@ -1,0 +1,62 @@
+-- mags_ui_details.script
+-- Injects a "Compatible Magazines" section into the item details panel for supported weapons,
+-- positioned immediately after the ammo list.
+-- Uses the same injection pattern as ver_lasers_ui_details.script (credit: Demonized,Verdatim).
+
+local function clone_function(fn)
+	local dumped = string.dump(fn)
+	local cloned = loadstring(dumped)
+	local i = 1
+	while true do
+		local name = debug.getupvalue(fn, i)
+		if not name then break end
+		debug.upvaluejoin(cloned, i, fn, i)
+		i = i + 1
+	end
+	return cloned
+end
+
+ui_itm_details.UIItemSheet.ResetSuperSuper_mags = clone_function(ui_itm_details.UIItemSheet.Reset)
+
+ui_itm_details.UIItemSheet.Reset = function(self, obj)
+	-- Resolve section and check eligibility before calling original Reset,
+	-- so we can inject mags right after the ammo block.
+	local mags = nil
+	if magazine_binder and obj and IsWeapon(obj) then
+		local sec = ini_sys:r_string_ex(obj:section(), "parent_section") or obj:section()
+		if magazine_binder.is_supported_weapon(sec) then
+			local m = magazine_binder.get_mags_for_weapon and magazine_binder.get_mags_for_weapon(obj)
+			if m and #m > 0 then
+				mags = m
+			end
+		end
+	end
+
+	if not mags then
+		-- No magazines to inject; run original Reset unchanged.
+		ui_itm_details.UIItemSheet.ResetSuperSuper_mags(self, obj)
+		return
+	end
+
+	-- Temporarily wrap AddLine so we can intercept the first call that
+	-- follows the ammo container being registered, and insert mags there.
+	local original_AddLine = ui_itm_details.UIItemSheet.AddLine
+	local injected = false
+
+	ui_itm_details.UIItemSheet.AddLine = function(self_inner, xml, offset)
+		original_AddLine(self_inner, xml, offset)
+		-- Fire once: right after the ammo section's closing line.
+		if not injected and self_inner.CC["ammo"] then
+			injected = true
+			local xml_inner = self_inner.xml
+			self_inner:AddText(xml_inner, "text_b_l", 0, game.translate_string("st_mag_compatible_mags"))
+			self_inner.CC["compatible_mags"] = self_inner:AddContainer(xml_inner, "cont", 0, mags)
+			original_AddLine(self_inner, xml_inner, 0)
+		end
+	end
+
+	ui_itm_details.UIItemSheet.ResetSuperSuper_mags(self, obj)
+
+	-- Restore original AddLine.
+	ui_itm_details.UIItemSheet.AddLine = original_AddLine
+end

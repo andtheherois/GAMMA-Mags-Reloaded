@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="windows-1251"?>
+
+<string_table>
+	<string id="st_af_magpouch_s_name">
+		<text>
+		Small Magazine Pouch
+		</text>
+	</string>
+	<string id="st_af_magpouch_s_descr">
+		<text>
+		A lightweight, collapsible magazine pouch. The squadron laminate and thick poly elastic material allow for a smooth draw and easy reinsertion.\n \n%c[0,255,255,255]\n%c[0,255,255,255]•%c[ui_gray2] Only one magazine pouch can be equipped\n \n%c[0,255,255,255]CAPACITY:\n
+		</text>
+	</string>
+
+	<string id="st_af_magpouch_m_name">
+		<text>
+		Medium Magazine Pouch
+		</text>
+	</string>
+	<string id="st_af_magpouch_m_descr">
+		<text>
+		Hook-backed elastic plate carrier placard specifically designed to hold a variety of magazine sizes.\n \n%c[0,255,255,255]\n%c[0,255,255,255]•%c[ui_gray2] Only one magazine pouch can be equipped\n \n%c[0,255,255,255]CAPACITY:\n
+		</text>
+	</string>
+
+	<string id="st_af_magpouch_l_name">
+		<text>
+		Large Magazine Pouch
+		</text>
+	</string>
+	<string id="st_af_magpouch_l_descr">
+		<text>
+		Versatile multi-caliber magazine pouch with secure fit and quick access. Comes with a rubberized interior to grip magazines, eliminating the need for excessive external tension.\n \n%c[0,255,255,255]\n%c[0,255,255,255]•%c[ui_gray2] Only one magazine pouch can be equipped\n \n%c[0,255,255,255]CAPACITY:\n
+		</text>
+	</string>
+</string_table>

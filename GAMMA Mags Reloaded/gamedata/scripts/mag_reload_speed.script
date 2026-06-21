@@ -1,0 +1,120 @@
+-- mag_reload_speed.script
+-- Hooks into ver_dynamic_reload_speeds to apply a magazine's reload speed multiplier
+-- to the animation of inserting that magazine into the gun.
+--
+-- magazines.script calls set_pending_mag(mag) immediately before weapon:switch_state(7),
+-- so by the time actor_on_hud_animation_play fires the incoming magazine is known.
+--
+-- pending_mag_sec is NOT consumed by the speed functor on read. It is only cleared
+-- by clear_pending_mag(), which magazines.script calls from stop_all_processes (anm_hide)
+-- and from the completion path in delay_load_weapon. This avoids premature consumption
+-- if actor_on_hud_animation_play fires for a non-reload anim before the reload anim.
+--
+-- The sound disabler uses a separate pending_sound_sec that is set at the same time
+-- and cleared after the sound callback consumes it, so it only silences the engine
+-- sound for the one reload it belongs to and not any subsequent reloads.
+--
+-- Example ltx usage:
+--   ![mag_ak_5.45x39_fast]
+--   inv_weight        = 0.2
+--   cost              = 2500
+--   reload_speed_mult = 1.25   ; 25% faster reload when inserting this mag
+--   mag_check_mult    = 1.25   ; 25% faster mag/ammo check animation with this mag loaded
+
+
+local pending_mag_sec = nil
+local pending_sound_sec = nil
+
+
+-- Called by magazines.script just before weapon:switch_state(7)
+function set_pending_mag(mag)
+	pending_mag_sec = mag and mag:section() or nil
+	pending_sound_sec = pending_mag_sec
+end
+
+-- Called by magazines.script from stop_all_processes (anm_hide) and delay_load_weapon completion
+function clear_pending_mag()
+	pending_mag_sec = nil
+	pending_sound_sec = nil
+end
+
+
+local function mag_reload_speed_functor(anim_table, obj)
+	if not obj then return false end
+	if not pending_mag_sec then return false end
+
+	local mult = ini_sys:r_float_ex(pending_mag_sec, "reload_speed_mult")
+	if not mult or mult == 1 then return false end
+
+	local cam_anim_bool = (mult > 0.9 and mult < 1.1)
+	return mult, cam_anim_bool
+end
+
+
+local function mag_sound_disabler_functor()
+	if not pending_sound_sec then return false end
+
+	local mult = ini_sys:r_float_ex(pending_sound_sec, "reload_speed_mult")
+	if not mult or mult == 1 then return false end
+
+	-- Consume now: the sound callback fires once per reload, this clears it so
+	-- the next reload is not affected.
+	pending_sound_sec = nil
+	return true
+end
+
+
+local function is_mag_check_anim(anim_table)
+	local anm_name = anim_table and anim_table.anm_name
+	if not anm_name then return false end
+	return string.find(anm_name, "ammo_check") or string.find(anm_name, "mag_check")
+end
+
+
+local function get_loaded_mag_check_mult(obj)
+	if not (obj and type(obj) == "userdata" and obj:is_weapon()) then return 1 end
+	if not (magazine_binder and magazine_binder.get_mag_loaded) then return 1 end
+
+	local mag_data = magazine_binder.get_mag_loaded(obj:id())
+	local mag_sec = mag_data and mag_data.section
+	if not mag_sec then return 1 end
+
+	local mult = ini_sys:r_float_ex(mag_sec, "mag_check_mult")
+	if not mult or mult <= 0 then return 1 end
+	return mult
+end
+
+
+local function mag_check_speed_mutator(anim_table, obj)
+	if not is_mag_check_anim(anim_table) then return end
+
+	local mult = get_loaded_mag_check_mult(obj)
+	if mult == 1 then return end
+
+	local anim_speed = anim_table.anm_speed
+	if not anim_speed or anim_speed <= 0 then anim_speed = 1 end
+	anim_table.anm_speed = anim_speed * mult
+end
+
+
+-- Catches engine-triggered reloads (e.g. ammo type change) that bypass
+-- magazines.script's actor_on_weapon_reload and therefore never call set_pending_mag.
+-- If pending_mag_sec is already set, magazines.script already handled it -- skip.
+local function on_weapon_reload(weapon, ammo_type)
+	if pending_mag_sec then return end
+	if not weapon or type(weapon) ~= "userdata" or not weapon:is_weapon() then return end
+	local mag = magazines and magazines.find_magazine and magazines.find_magazine(weapon)
+	if not mag then return end
+	set_pending_mag(mag)
+end
+
+function on_game_start()
+	if ver_dynamic_reload_speeds then
+		ver_dynamic_reload_speeds.add_reload_speed_increase(mag_reload_speed_functor, 10)
+		ver_dynamic_reload_speeds.add_sound_disabler_functor(mag_sound_disabler_functor, 10)
+	end
+	if animation_common and animation_common.add_anim_mutator then
+		animation_common.add_anim_mutator(mag_check_speed_mutator, 10)
+	end
+	RegisterScriptCallback("actor_on_weapon_reload", on_weapon_reload)
+end

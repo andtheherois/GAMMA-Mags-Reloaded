@@ -1,0 +1,230 @@
+---==================================================================================================================---
+---                                                                                                                  ---
+---    Script : mag_bone_hider                                                                                       ---
+---    Description : Hides magazine-related bones on weapons when no magazine is loaded.                             ---
+---                  Shows the bone as soon as a reload begins and keeps it visible                                   ---
+---                  for the entire animation, including while the old mag is ejected.                                ---
+---                  Only affects weapons that are supported by the magazine system.                                  ---
+---                  Guns that cannot accept magazines are left entirely untouched.                                   ---
+---                                                                                                                  ---
+---    Dependencies : magazine_binder, mag_reload_speed (magazines mod)                                              ---
+---                                                                                                                  ---
+---==================================================================================================================---
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- Configuration
+-- ---------------------------------------------------------------------------------------------------------------------
+
+DEBUG_MODE = false
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- Utility
+-- ---------------------------------------------------------------------------------------------------------------------
+
+local function printdbg(...)
+    if DEBUG_MODE then printf(...) end
+end
+
+local function set_bone_visibility(obj, bone_name, visible)
+    obj:set_bone_visible(bone_name, visible, true, true)
+end
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- State
+-- ---------------------------------------------------------------------------------------------------------------------
+
+-- Caches whether each weapon ID is magazine-supported so we never call
+-- is_supported_weapon more than once per weapon lifetime.
+local supported_cache = {}
+
+-- Caches all HUD-model bone names beginning with "mag" for each weapon ID.
+-- HUD bones are enumerated only while the weapon is active, when its HUD
+-- model is guaranteed to exist.
+local mag_bones_cache = {}
+
+-- Tracks the last known bone visibility state per weapon ID so we only call
+-- set_bone_visibility when the state actually changes.
+local last_state = {}
+
+-- When true, the poll and update logic will not hide bones.
+-- Set true when a reload begins, false when it completes or is cancelled.
+-- This prevents eject_magazine() mid-animation from hiding the bone.
+local reload_in_progress = false
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- Core logic
+-- ---------------------------------------------------------------------------------------------------------------------
+
+local function is_supported(obj)
+    local id = obj:id()
+    if supported_cache[id] == nil then
+        supported_cache[id] = magazine_binder.is_supported_weapon(obj) and true or false
+    end
+    return supported_cache[id]
+end
+
+local function get_mag_bones(obj)
+    local id = obj:id()
+    if mag_bones_cache[id] then return mag_bones_cache[id] end
+
+    local active = db.actor and db.actor:active_item()
+    if not active or active:id() ~= id or not obj.list_bones then return nil end
+
+    local result = {}
+    local bones = obj:list_bones(true)
+    for _, bone_name in pairs(bones) do
+        if type(bone_name) == "string" and bone_name:lower():sub(1, 3) == "mag" then
+            result[#result + 1] = bone_name
+        end
+    end
+
+    mag_bones_cache[id] = result
+    printdbg("[MAG BONE HIDER] INFO | %s | found %s mag bones.", obj:name(), tostring(#result))
+    return result
+end
+
+local function set_mag_bones(obj, visible, force)
+    local id = obj:id()
+    local mag_bones = get_mag_bones(obj)
+    if not mag_bones then return end
+    if not force and last_state[id] == visible then return end
+    last_state[id] = visible
+
+    printdbg("[MAG BONE HIDER] INFO | %s | setting mag bones visible=%s", obj:name(), tostring(visible))
+
+    for _, bone_name in ipairs(mag_bones) do
+        set_bone_visibility(obj, bone_name, visible)
+    end
+end
+
+--- Show or hide bones based on actual mag data.
+--- Will not hide bones while a reload is in progress.
+--- @param obj game_object
+--- @return nil
+local function update_mag_bones(obj)
+    if not is_supported(obj) then return end
+
+    local mag_loaded = magazine_binder.get_mag_loaded(obj:id()) ~= nil
+
+    -- Never hide the bone mid-reload; the old mag is ejected during the
+    -- animation which would cause get_mag_loaded to return nil and hide the
+    -- bone before the new one is committed.
+    if reload_in_progress and not mag_loaded then
+        printdbg("[MAG BONE HIDER] INFO | %s | reload in progress, suppressing hide.", obj:name())
+        return
+    end
+
+    set_mag_bones(obj, mag_loaded)
+end
+
+--- Mark a scripted reload as started immediately.
+--- Used by reload paths that clear/eject magazine data before the normal
+--- delay_load_weapon path has a chance to run.
+function begin_reload(weapon)
+    if not weapon or not IsWeapon(weapon) or not is_supported(weapon) then return end
+    reload_in_progress = true
+    set_mag_bones(weapon, true, true)
+end
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- mag_reload_speed wrapping
+--
+-- magazines.script calls mag_reload_speed.set_pending_mag() immediately before
+-- switch_state(7) and mag_reload_speed.clear_pending_mag() when the reload
+-- completes or is cancelled. These are the two moments we care about:
+--   set_pending_mag  -> reload starting  -> show bone, lock out hiding
+--   clear_pending_mag -> reload done/cancelled -> unlock, re-evaluate from mag data
+-- ---------------------------------------------------------------------------------------------------------------------
+
+local function wrap_reload_speed_funcs()
+    if not mag_reload_speed then
+        printf("[MAG BONE HIDER] ERROR | mag_reload_speed not found, cannot wrap reload functions.")
+        return
+    end
+
+    local original_set   = mag_reload_speed.set_pending_mag
+    local original_clear = mag_reload_speed.clear_pending_mag
+
+    mag_reload_speed.set_pending_mag = function(mag)
+        original_set(mag)
+        reload_in_progress = true
+        local weapon = db.actor and db.actor:active_item()
+        if weapon and IsWeapon(weapon) and is_supported(weapon) then
+            printdbg("[MAG BONE HIDER] INFO | %s | reload starting, showing mag bones.", weapon:name())
+            set_mag_bones(weapon, true, true)
+        end
+    end
+
+    mag_reload_speed.clear_pending_mag = function()
+        original_clear()
+        reload_in_progress = false
+        local weapon = db.actor and db.actor:active_item()
+        if weapon and IsWeapon(weapon) then
+            update_mag_bones(weapon)
+        end
+    end
+end
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- Callbacks
+-- ---------------------------------------------------------------------------------------------------------------------
+
+function game_object_on_net_spawn(obj)
+    if not IsWeapon(obj) then return end
+
+    local parent = obj:parent()
+    if not parent or parent:id() ~= AC_ID then return end
+
+    CreateTimeEvent("mag_bone_hider_spawn", obj:name(), 0.15, function(id)
+        local weapon = level.object_by_id(id)
+        if weapon then update_mag_bones(weapon) end
+        return true
+    end, obj:id())
+end
+
+function game_object_on_net_destroy(obj)
+    if not IsWeapon(obj) then return end
+    local id = obj:id()
+    supported_cache[id] = nil
+    mag_bones_cache[id] = nil
+    last_state[id]      = nil
+end
+
+--- magazines.script fires SendScriptCallback("actor_on_weapon_reload", weapon, 0),
+--- so the first argument is the weapon, not the actor.
+function actor_on_weapon_reload(weapon, ammo_total)
+    if not weapon or not IsWeapon(weapon) then return end
+    update_mag_bones(weapon)
+end
+
+local last_check_tg  = 0
+local CHECK_INTERVAL = 200
+
+function actor_on_update()
+    local tg = time_global()
+    if tg < last_check_tg + CHECK_INTERVAL then return end
+    last_check_tg = tg
+
+    local weapon = db.actor and db.actor:active_item()
+    if not weapon or not IsWeapon(weapon) then return end
+
+    update_mag_bones(weapon)
+end
+
+function actor_on_weapon_zoom_in(obj)
+    if obj and IsWeapon(obj) then update_mag_bones(obj) end
+end
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- Callback registration
+-- ---------------------------------------------------------------------------------------------------------------------
+
+function on_game_start()
+    wrap_reload_speed_funcs()
+
+    RegisterScriptCallback("game_object_on_net_spawn",   game_object_on_net_spawn)
+    RegisterScriptCallback("game_object_on_net_destroy", game_object_on_net_destroy)
+    RegisterScriptCallback("actor_on_weapon_reload",     actor_on_weapon_reload)
+    RegisterScriptCallback("actor_on_update",            actor_on_update)
+    RegisterScriptCallback("actor_on_weapon_zoom_in",    actor_on_weapon_zoom_in)
+end

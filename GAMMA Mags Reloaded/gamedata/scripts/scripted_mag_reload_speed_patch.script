@@ -1,0 +1,104 @@
+-- scripted_mag_reload_speed_patch.script
+-- Keeps Scripted Mags visual swap delays in sync with Reloaded's per-mag
+-- reload_speed_mult without editing Scripted Mags itself.
+
+local pending_mag_sec = nil
+local installed = false
+
+local function is_reload_anim(anim_table)
+	if not anim_table or not anim_table.anm_name then return false end
+	if string.find(anim_table.anm_name, "misfire") then return false end
+	return string.find(anim_table.anm_name, "anm_reload") and true or false
+end
+
+local function has_scripted_mag_swap_delay(section, anim_name)
+	if not section or not anim_name then return false end
+	return ini_sys:r_float_ex(section, anim_name .. "_mag_swap_delay") ~= nil
+end
+
+local function get_pending_reload_mult()
+	if not pending_mag_sec then return 1 end
+	local mult = ini_sys:r_float_ex(pending_mag_sec, "reload_speed_mult")
+	if not mult or mult <= 0 then return 1 end
+	return mult
+end
+
+local function get_ammocheck_reload_mult(anim_table, obj)
+	local ac = ammo_check_fastreload_mcm
+	if not (ac and ac.ac_reload_speed_functor) then return 1 end
+
+	local mult = ac.ac_reload_speed_functor(anim_table, obj)
+	if not mult or mult <= 0 then return 1 end
+	return mult
+end
+
+local function get_effective_reload_mult(anim_table, obj)
+	local ac_mult = get_ammocheck_reload_mult(anim_table, obj)
+	if ac_mult ~= 1 then
+		return ac_mult
+	end
+
+	return get_pending_reload_mult()
+end
+
+local function apply_scripted_mag_reload_speed(anim_table, obj)
+	if not scripted_magazines then return end
+	if not is_reload_anim(anim_table) then return end
+	if not obj or type(obj) ~= "userdata" or not obj:is_weapon() then return end
+	if not has_scripted_mag_swap_delay(obj:section(), anim_table.anm_name) then return end
+
+	local mult = get_effective_reload_mult(anim_table, obj)
+	if mult == 1 then return end
+
+	local anim_speed = anim_table.anm_speed
+	if not anim_speed or anim_speed <= 0 then anim_speed = 1 end
+
+	anim_table.anm_speed = anim_speed * mult
+end
+
+local function install_scripted_mag_reload_speed_hooks()
+	if not mag_reload_speed then return end
+
+	local original_set_pending_mag = mag_reload_speed.set_pending_mag
+	if original_set_pending_mag then
+		mag_reload_speed.set_pending_mag = function(mag, ...)
+			pending_mag_sec = mag and mag:section() or nil
+			return original_set_pending_mag(mag, ...)
+		end
+	end
+
+	local original_clear_pending_mag = mag_reload_speed.clear_pending_mag
+	if original_clear_pending_mag then
+		mag_reload_speed.clear_pending_mag = function(...)
+			pending_mag_sec = nil
+			return original_clear_pending_mag(...)
+		end
+	end
+end
+
+local function install_scripted_mag_reload_speed_animation_hook()
+	if animation_common and animation_common.add_anim_mutator then
+		-- Scripted Mags registers at 1000. Run right before it so its existing
+		-- delay / anim_speed calculation sees Reloaded's mag speed multiplier.
+		animation_common.add_anim_mutator(apply_scripted_mag_reload_speed, 999)
+		return
+	end
+
+	if scripted_magazines and scripted_magazines.actor_on_hud_animation_play then
+		local original = scripted_magazines.actor_on_hud_animation_play
+		scripted_magazines.actor_on_hud_animation_play = function(anim_table, obj, ...)
+			apply_scripted_mag_reload_speed(anim_table, obj)
+			return original(anim_table, obj, ...)
+		end
+	end
+end
+
+function on_game_start()
+	if installed then return end
+	if not scripted_magazines then return end
+	if not mag_reload_speed then return end
+
+	install_scripted_mag_reload_speed_hooks()
+	install_scripted_mag_reload_speed_animation_hook()
+	installed = true
+end

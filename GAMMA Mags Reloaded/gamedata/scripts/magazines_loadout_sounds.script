@@ -1,0 +1,80 @@
+--[[
+    Script to play different sounds when putting mags in loadout
+    Made for EFP
+
+    Author: HarukaSai
+    05-04-2022
+]]
+
+local get_sound_obj = xr_sound.get_safe_sound_object
+local string_format = string.format
+local math_random = math.random
+
+is_magazine = nil
+inventory_refresh = nil
+toggle_carried_mag = nil
+mousebase = nil
+create_time_event = nil
+d_flag = false
+
+function on_key_press(key)
+	if (key == DIK_keys.DIK_LMENU) then
+		d_flag = true
+	end
+end
+
+function on_key_release(key)
+	if (key == DIK_keys.DIK_LMENU) then
+		d_flag = false
+	end
+end
+
+function play_loadout_sound(type)
+    local sound = get_sound_obj(string_format("mags_redux\\generic_mag_pouch_%s%s", type, math_random(7)))
+    sound:play(db.actor,0,sound_object.s2d)
+end
+
+function on_game_start()
+    if not (magazines and magazines.loadout_func) then
+        return
+    end
+    
+    is_magazine = magazine_binder.is_magazine
+    inventory_refresh = magazines.inventory_refresh
+    toggle_carried_mag = magazine_binder.toggle_carried_mag
+    mousebase = mags_patches.mousebase
+    create_time_event = magazines.create_time_event
+
+    mags_patches.utils_ui.UICellContainer.On_Mouse1 = function(self, idx)
+        mousebase(self, idx)
+        if d_flag then
+            create_time_event("mag_redux", "delay_toggle", 0, mags_patches.wrap_toggle, self.cell[idx].ID)
+        end
+    end
+
+    magazines.loadout_func = function(obj)
+        if is_magazine(obj) then
+            local id = obj:id()
+            local type  = toggle_carried_mag(id) and "in" or "out"
+            play_loadout_sound(type)
+            inventory_refresh()
+            mag_hud.HUD:Update(true)
+        end
+    end
+
+    mags_patches.wrap_toggle = function(id)
+        if not is_magazine(id) then 
+            return true 
+        end
+        local result = toggle_carried_mag(id)
+        if result ~= nil then
+            local type = result and "in" or "out"
+            play_loadout_sound(type)
+            inventory_refresh()
+        end
+        return true
+    end
+
+    RegisterScriptCallback("on_key_press", on_key_press)
+    RegisterScriptCallback("on_key_release", on_key_release)
+end

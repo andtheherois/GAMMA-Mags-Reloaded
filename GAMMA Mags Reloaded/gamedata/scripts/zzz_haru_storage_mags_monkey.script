@@ -1,0 +1,37 @@
+function on_game_start()
+	RegisterScriptCallback("ActorMenu_on_item_before_move", custom_storage)
+end
+
+
+function custom_storage()
+	is_magazine					= magazine_binder.is_magazine
+	
+
+-- no real way to tell apart canned food, so we just have a table with them
+	canned_food = {
+		["beans"] = true,
+		["chili"] = true,
+		["conserva"] = true,
+		["corn"] = true,
+		["tomato"] = true,
+		["tushonka"] = true
+	}
+	
+	haru_specialized_storage_boxes.storage_types = {
+		["ammo"] = function(obj) 
+			if IsAmmo(obj) or is_magazine(obj) then
+				return true
+			else
+				return false
+			end
+		end,
+		["meds"] = function(obj) 
+			return SYS_GetParam(0, obj:section(), "kind") == "i_medical" 
+		end,
+		["canned_food"] = function(obj)
+			local sec = obj:section()
+			return canned_food[sec] or false
+		end
+	}
+
+end

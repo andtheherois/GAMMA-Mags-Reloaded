@@ -1,0 +1,68 @@
+-- power is stamina
+-- c_outfit.m_fPowerRestoreSpeed is stamina restore speed, default val for player is 0.020, lowering it below 0 passively drains stamina
+-- I'm editing outfit stamina regen bc I need the outfit variables anyways(and it appears to work)
+-- Actor.ltx stand_power = -0.005 // looks to be stamina regen when standing
+-- walk_power = stamina drain when walking
+-- max_power_restore_speed = 0.02 // possibly upper cap on stamina regen
+-- walk_weight_power // possibly stamina multiplier for overweight
+local power_modifiers = {}
+local power_restoration = 0
+not_first_update = true
+
+
+local function actor_on_first_update() 
+    local outfit = db.actor:item_in_slot(7)
+    if outfit then
+        local c_outfit = outfit:cast_CustomOutfit()
+        if c_outfit then
+            printf("c_outfit.m_fPowerRestoreSpeed")
+            power_consumption = c_outfit.m_fPowerRestoreSpeed or 0.005
+        end
+    end
+    not_first_update = false
+end
+
+function on_game_start()
+	RegisterScriptCallback("actor_on_first_update",actor_on_first_update)
+end 
+
+function add_power_loss(power_key, power_loss_value)
+    if not power_modifiers[power_key] then
+        power_modifiers[power_key] = power_loss_value
+    end
+    update_power_consumption()
+end
+
+function remove_power_loss(power_key)
+    if power_modifiers[power_key] then
+        power_modifiers[power_key] = nil
+    end
+    update_power_consumption()
+end
+
+function update_power_consumption()
+    if not_first_update then
+        actor_on_first_update()
+    end
+    local outfit = db.actor:item_in_slot(7)
+    if outfit then
+        local c_outfit = outfit:cast_CustomOutfit()
+        if c_outfit then
+            local coef = calculate_power_consumption(c_outfit)
+            -- check for 'zero' due to floating point arithmetic
+            -- using additive coef
+            c_outfit.m_fPowerRestoreSpeed = power_restoration + coef
+            printf("OVERALL")
+            printf(c_outfit.m_fPowerRestoreSpeed)
+        end
+    end    
+end
+
+function calculate_power_consumption(outfit, c_outfit)
+    local coef = 0
+    for k,v in pairs(power_modifiers) do
+        --printf(k)
+        coef = coef + v
+    end
+    return coef
+end

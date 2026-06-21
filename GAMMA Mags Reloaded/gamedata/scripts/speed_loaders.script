@@ -1,0 +1,544 @@
+--[[
+=======================================================================================
+	Speed Loaders
+	Allows speed loader items to be attached directly to weapons that use the
+	engine's tri-state reload (no magazine support). Provides a reload speed
+	multiplier sourced from the attached item when the weapon is reloaded.
+
+	Follows the same attachment pattern as mag_pouches.script and the same
+	reload speed pattern as mag_reload_speed.script.
+
+	Example ltx:
+	  ![speed_loader_revolver]
+	  inv_weight          = 0.15
+	  cost                = 800
+	  reload_speed_mult   = 1.30   ; 30% faster reload when attached
+	  use1_functor        = speed_loaders.precond_install
+	  use1_action_functor = speed_loaders.install_loader
+=======================================================================================
+--]]
+
+---------------------------------------------------------------------------------------
+--                                   VARIABLES
+---------------------------------------------------------------------------------------
+
+local gc      = game.translate_string
+local clr_2   -- resolved in on_game_start after utils_xml is loaded
+local clr_ylw -- resolved in on_game_start after utils_xml is loaded
+
+speed_loaders = {}   -- [weapon_id] = { section, cond }
+
+-- Set when actor_on_weapon_reload fires for a weapon that has a loader attached.
+-- Not consumed on read by the speed functor (mirrors mag_reload_speed pattern) —
+-- overwritten on the next reload or cleared on unregister.
+local pending_weapon_id = nil
+local clone_patch_installed = false
+
+
+
+---------------------------------------------------------------------------------------
+--                                   HELPERS
+---------------------------------------------------------------------------------------
+
+local SPEED_LOADER_FUNCTORS = {
+	["speed_loaders.precond_install"]         = true,
+	["speed_loaders.precond_install_shotgun"] = true,
+	["speed_loaders.precond_install_rifle"]   = true,
+}
+
+-- All speed loader sections collected from speed_loaders_list at game start.
+-- Used by the inventory highlight callback to know which sections to highlight.
+local speed_loaders_table = {}
+
+-- Dispatch table for typed precond lookup by functor string.
+-- Populated after the precond functions are defined (see bottom of CALLBACKS section).
+local precond_dispatch = {}
+
+-- [section] = true/false. is_valid_weapon result is stable per section; cache it
+-- to avoid repeated IsWeapon / IsItem / magazine_binder calls in hot paths.
+local valid_weapon_cache = {}
+
+-- [section] = axis table. get_item_axis is an ltx read; cache per section.
+local item_axis_cache = {}
+
+-- [weapon_section] = { loader_sec, ... }. Built once per weapon section hovered;
+-- avoids re-running precond logic on every mouse-move over the same item type.
+local highlight_cache = {}
+
+-- Walk the parent_section chain to find a string key, since ini_sys:r_string_ex
+-- only reads the literal section and does not follow inheritance.
+local function get_inherited_string(sec, key)
+	local current = sec
+	while current do
+		local val = ini_sys:r_string_ex(current, key)
+		if val then return val end
+		current = ini_sys:r_string_ex(current, "parent_section")
+	end
+end
+
+local function is_speed_loader(obj)
+	if not obj then return end
+	local functor = get_inherited_string(obj:section(), "use1_functor")
+	return SPEED_LOADER_FUNCTORS[functor]
+end
+
+local function is_shotgun(obj)
+	if not obj then return end
+	return SYS_GetParam(0, obj:section(), "kind") == "w_shotgun"
+end
+
+local function is_rifle(obj)
+	if not obj then return end
+	local kind = SYS_GetParam(0, obj:section(), "kind")
+	return kind == "w_rifle" or kind == "w_sniper"
+end
+
+-- Get the root section of a weapon, stripping any scope suffix.
+-- This is stable across all scope variants of the same gun.
+local function get_wpn_base(weapon)
+	return ini_sys:r_string_ex(weapon:section(), "parent_section") or weapon:section()
+end
+
+local function get_section_base(section)
+	return section and (ini_sys:r_string_ex(section, "parent_section") or section)
+end
+
+-- Only act on weapons that do NOT have magazine support (tri-state reload).
+-- Guards against accidentally touching magazine weapons, fake-ammo weapons, etc.
+-- Result is cached per section; the check is stable for the lifetime of a session.
+local function is_valid_weapon(obj)
+	if not obj then return end
+	local sec = obj:section()
+	local cached = valid_weapon_cache[sec]
+	if cached ~= nil then return cached or nil end
+	local result = false
+	if IsWeapon(obj)
+		and not IsItem("fake_ammo_wpn", sec)
+		and not (magazine_binder and magazine_binder.is_supported_weapon and magazine_binder.is_supported_weapon(obj))
+	then
+		result = true
+	end
+	valid_weapon_cache[sec] = result
+	return result or nil
+end
+
+---------------------------------------------------------------------------------------
+--                                   WEIGHT
+---------------------------------------------------------------------------------------
+
+local function adjust_weight(weapon)
+	if not IsWeapon(weapon) then return end
+	local base_weight = SYS_GetParam(2, weapon:section(), "inv_weight")
+	local loader = speed_loaders[weapon:id()]
+	if loader then
+		base_weight = base_weight + SYS_GetParam(2, loader.section, "inv_weight")
+	end
+	weapon:set_weight(base_weight)
+end
+
+local function check_power()
+	local power_loss = 0
+	local weapon = item_weapon and item_weapon.get_weapon_slot()
+	if weapon and speed_loaders[weapon:id()] then
+		local loader = speed_loaders[weapon:id()]
+		power_loss = SYS_GetParam(2, loader.section, "power_restore_speed") or 0
+	end
+	if power_loss ~= 0 then
+		stamina.add_power_loss("speed_loader", power_loss)
+	else
+		stamina.remove_power_loss("speed_loader")
+	end
+end
+
+---------------------------------------------------------------------------------------
+--                                   CALLBACKS
+---------------------------------------------------------------------------------------
+
+function on_item_drag_dropped(from, to, slot_from, slot_to)
+	-- Accept: loader from bag dropped onto a weapon in the bag or weapon slot.
+	-- Also accept: weapon from bag dropped onto a loader in the bag (reversed drag).
+	local loader, weapon
+	if slot_from == EDDListType.iActorBag and (slot_to == EDDListType.iActorBag or slot_to == EDDListType.iActorSlot) then
+		if from and is_speed_loader(from) and is_valid_weapon(to) then
+			loader, weapon = from, to
+		elseif from and is_valid_weapon(from) and to and is_speed_loader(to) then
+			loader, weapon = to, from
+		end
+	end
+	if not (loader and weapon) then return end
+	-- Resolve the typed precond declared on the loader so that shotgun saddles
+	-- can only be attached to shotguns and rifle saddles only to rifles.
+	local functor_str = get_inherited_string(loader:section(), "use1_functor")
+	local precond = precond_dispatch[functor_str]
+	if precond and precond(loader, weapon) then
+		remove_loader(weapon)
+		install_loader(loader, weapon)
+	end
+end
+
+function precond_remove(weapon)
+	local id = weapon and weapon:id() or 0
+	if speed_loaders[id] then
+		if IsWeapon(weapon) then return "st_remove_speed_loader"
+		else speed_loaders[id] = nil end
+	end
+end
+
+function remove_loader(weapon)
+	if not weapon or not speed_loaders[weapon:id()] then return end
+	local loader = speed_loaders[weapon:id()]
+	alife_create_item(loader.section, db.actor, {cond = loader.cond})
+
+	local snd = sound_object("interface\\inv_disassemble_cloth_fast_2")
+	snd:play(db.actor)
+
+	speed_loaders[weapon:id()] = nil
+	adjust_weight(weapon)
+	check_power()
+end
+
+function precond_install(loader, weapon)
+	local weapon = weapon or item_weapon.get_weapon_slot()
+	if not weapon then return end
+	if not is_valid_weapon(weapon) then return end
+	if not is_speed_loader(loader) then return end
+	return "st_install_speed_loader"
+end
+
+function precond_install_shotgun(loader, weapon)
+	local weapon = weapon or item_weapon.get_weapon_slot()
+	if not weapon then return end
+	if not is_valid_weapon(weapon) then return end
+	if not is_speed_loader(loader) then return end
+	if not is_shotgun(weapon) then return end
+	return "st_install_speed_loader"
+end
+
+function precond_install_rifle(loader, weapon)
+	local weapon = weapon or item_weapon.get_weapon_slot()
+	if not weapon then return end
+	if not is_valid_weapon(weapon) then return end
+	if not is_speed_loader(loader) then return end
+	if not is_rifle(weapon) then return end
+	return "st_install_speed_loader"
+end
+
+-- Populated here, after all precond functions are defined above.
+precond_dispatch = {
+	["speed_loaders.precond_install"]         = precond_install,
+	["speed_loaders.precond_install_shotgun"] = precond_install_shotgun,
+	["speed_loaders.precond_install_rifle"]   = precond_install_rifle,
+}
+
+function install_loader(loader, weapon)
+	-- When called from drag-drop onto a bag weapon, the target is passed explicitly.
+	-- When called from the use1_action_functor (right-click install), fall back to
+	-- get_weapon_slot(): inventory is open so active_item() returns nil.
+	local weapon = weapon or item_weapon.get_weapon_slot()
+
+	if not weapon or not loader then return end
+	if not is_valid_weapon(weapon) then return end
+
+	remove_loader(weapon)
+
+	local wpn_base = get_wpn_base(weapon)
+	speed_loaders[weapon:id()] = {
+		section  = loader:section(),
+		cond     = loader:condition(),
+		wpn_base = wpn_base,
+	}
+
+	local snd = sound_object("interface\\inv_disassemble_cloth_fast_2")
+	snd:play(db.actor)
+
+	alife_release(loader)
+	adjust_weight(weapon)
+	check_power()
+end
+
+---------------------------------------------------------------------------------------
+--                                   RELOAD SPEED
+---------------------------------------------------------------------------------------
+
+-- Set pending when a valid tri-state weapon with a loader attached starts reloading.
+local function on_weapon_reload(weapon, ammo_type)
+	if not is_valid_weapon(weapon) then return end
+	if not speed_loaders[weapon:id()] then return end
+	pending_weapon_id = weapon:id()
+end
+
+
+-- Migrate a speed loader entry from old_id to new_id after a scope change.
+-- Called from the item_weapon.attach_scope and detach_scope monkey-patches,
+-- where both the old and new weapon server objects are directly available.
+local function migrate_loader(old_id, new_se_weapon)
+	local entry = speed_loaders[old_id]
+	if not entry then return end
+	speed_loaders[new_se_weapon.id] = entry
+	speed_loaders[old_id] = nil
+end
+
+-- Registered with ver_dynamic_reload_speeds.
+-- Mirrors mag_reload_speed: pending is NOT consumed on read; it is overwritten
+-- by the next reload or cleared on unregister to avoid stale application.
+local function speed_loader_functor(anim_table, obj)
+	if not obj then return false end
+	if not pending_weapon_id then return false end
+	if obj:id() ~= pending_weapon_id then return false end
+
+	local loader = speed_loaders[pending_weapon_id]
+	-- Consume pending so it doesn't apply to a subsequent unrelated reload.
+	pending_weapon_id = nil
+	if not loader then return false end
+
+	local mult = tonumber(get_inherited_string(loader.section, "reload_speed_mult"))
+	if not mult or mult == 1 then return false end
+
+	local cam_anim_bool = (mult > 0.9 and mult < 1.1)
+	return mult, cam_anim_bool
+end
+
+---------------------------------------------------------------------------------------
+--                                   UI
+---------------------------------------------------------------------------------------
+
+local original_build_desc_header = ui_item.build_desc_header
+function ui_item.build_desc_header(obj, sec, str)
+	local _str  = ""
+	local _str2 = original_build_desc_header(obj, sec, str)
+
+	if obj and IsWeapon(obj) then
+		local loader = speed_loaders[obj:id()]
+		if loader then
+			_str = _str .. "\\n  " .. clr_ylw .. gc("st_dot") .. " " .. gc("st_speed_loader_attached") .. "\\n \\n"
+		end
+	end
+
+	return _str2 .. _str
+end
+
+---------------------------------------------------------------------------------------
+--                                   DISASSEMBLY
+---------------------------------------------------------------------------------------
+
+local DWeapon = item_parts.disassembly_weapon
+function item_parts.disassembly_weapon(weapon, tool)
+	remove_loader(weapon)
+	DWeapon(weapon, tool)
+end
+
+---------------------------------------------------------------------------------------
+--                                   SAVE/LOAD
+---------------------------------------------------------------------------------------
+
+function save_state(mdata)
+	mdata.speed_loaders = speed_loaders
+end
+
+function load_state(mdata)
+	speed_loaders = mdata.speed_loaders or {}
+end
+
+function server_entity_on_unregister(se_obj)
+	speed_loaders[se_obj.id] = nil
+	if pending_weapon_id == se_obj.id then
+		pending_weapon_id = nil
+	end
+end
+
+---------------------------------------------------------------------------------------
+--                                   ICON LAYER
+---------------------------------------------------------------------------------------
+
+local get_item_axis -- captured in on_game_start
+local icon_scale    = 0.75
+
+-- Offsets are expressed as a fraction of the weapon icon's rendered width/height
+-- so the loader badge scales correctly regardless of gun icon size.
+-- 0.0 = flush to the right/top edge produced by the axis formula;
+-- tweak these two values to nudge the badge without touching pixel math.
+local icon_offset_x_frac = -1.15   -- fraction of weapon_axis.w  (positive = shift right)
+local icon_offset_y_frac = 0.75  -- fraction of weapon_axis.h  (positive = shift down)
+
+local function get_cached_axis(section)
+	local cached = item_axis_cache[section]
+	if cached ~= nil then return cached end
+	local axis = get_item_axis(section)
+	item_axis_cache[section] = axis or false
+	return axis
+end
+
+local function get_loader_icon(cell, obj, sec)
+	if cell.showcase ~= 0 then return end
+	if not IsWeapon(obj) then return end
+	local loader = speed_loaders[obj:id()]
+	if not loader then return end
+	local loader_axis = get_cached_axis(loader.section)
+	local weapon_axis = get_cached_axis(sec)
+	if not (loader_axis and weapon_axis) then return end
+	return {
+		icon_layer       = loader.section,
+		icon_layer_x     = (weapon_axis.w / icon_scale) - loader_axis.w + (weapon_axis.w * icon_offset_x_frac),
+		icon_layer_y     = weapon_axis.h * icon_offset_y_frac,
+		icon_layer_scale = icon_scale,
+	}
+end
+
+---------------------------------------------------------------------------------------
+--                                   HIGHLIGHTING
+---------------------------------------------------------------------------------------
+
+function ActorMenu_on_item_focus_receive(obj)
+	if not IsWeapon(obj) then return end
+	local sec = obj:section()
+
+	-- Build highlight list for this weapon section once and cache it.
+	-- highlight_cache[sec] is populated on first hover of any weapon with that section
+	-- and reused on every subsequent hover, avoiding repeated precond + ltx calls.
+	if not highlight_cache[sec] then
+		local list = {}
+		for loader_sec, functor_str in pairs(speed_loaders_table) do
+			local precond = precond_dispatch[functor_str]
+			local fake_loader = { section = function() return loader_sec end }
+			if precond and precond(fake_loader, obj) then
+				list[#list + 1] = loader_sec
+			end
+		end
+		highlight_cache[sec] = list
+	end
+
+	local list = highlight_cache[sec]
+	local inventory = GetActorMenu()
+	if not (#list > 0 and inventory and inventory:IsShown()) then return end
+
+	for i = 1, #list do
+		inventory:highlight_section_in_slot(list[i], EDDListType.iActorBag)
+		inventory:highlight_section_in_slot(list[i], EDDListType.iPartnerTradeBag)
+		inventory:highlight_section_in_slot(list[i], EDDListType.iDeadBodyBag)
+		inventory:highlight_section_in_slot(list[i], EDDListType.iActorTrade)
+		inventory:highlight_section_in_slot(list[i], EDDListType.iPartnerTrade)
+	end
+end
+
+---------------------------------------------------------------------------------------
+--                                   GAME START
+---------------------------------------------------------------------------------------
+
+local function slot_move(obj)
+	if obj and IsWeapon(obj) then
+		check_power()
+	end
+end
+
+function on_game_start()
+	-- Capture module references here, after all scripts are loaded.
+	clr_2   = utils_xml.get_color("ui_gray_1")
+	clr_ylw = utils_xml.get_color("yellow")
+	get_item_axis = utils_xml.get_item_axis
+	-- Collect all speed loader sections from the ltx list.
+	if ini_sys:section_exist("speed_loaders_list") then
+		for sec in pairs(utils_data.collect_sections(ini_sys, {"speed_loaders_list"})) do
+			local functor = get_inherited_string(sec, "use1_functor")
+			if functor and SPEED_LOADER_FUNCTORS[functor] then
+				speed_loaders_table[sec] = functor
+			end
+		end
+	end
+
+	rax_icon_layers.register("speed_loader", get_loader_icon)
+	custom_functor_autoinject.add_functor("add_speed_loader", precond_remove, precond_remove, nil, remove_loader, true)
+	RegisterScriptCallback("ActorMenu_on_item_drag_drop",   on_item_drag_dropped)
+	RegisterScriptCallback("save_state",                    save_state)
+	RegisterScriptCallback("load_state",                    load_state)
+	RegisterScriptCallback("actor_on_weapon_reload",        on_weapon_reload)
+	RegisterScriptCallback("server_entity_on_unregister",   server_entity_on_unregister)
+	RegisterScriptCallback("ActorMenu_on_item_focus_receive", ActorMenu_on_item_focus_receive)
+
+	-- Magnifier switch and similar systems clone weapons directly through the
+	-- global helper instead of item_weapon.attach_scope/detach_scope. Preserve
+	-- side saddles when the clone is still the same base weapon section.
+	if not clone_patch_installed then
+		local original_clone_weapon = _G.alife_clone_weapon
+		_G.alife_clone_weapon = function(se_obj, section, parent_id)
+			local old_id  = se_obj and se_obj.id
+			local entry   = old_id and speed_loaders[old_id]
+			local old_sec = se_obj and se_obj:section_name()
+			local new_sec = section or old_sec
+			local old_base = entry and entry.wpn_base
+			local new_base = entry and get_section_base(new_sec)
+			local new_weapon = original_clone_weapon(se_obj, section, parent_id)
+
+			if entry and new_weapon and old_base == new_base then
+				speed_loaders[new_weapon.id] = entry
+				speed_loaders[old_id] = nil
+				CreateTimeEvent("sl_migrate", "sl_clone_" .. old_id, 0, function()
+					local obj = level.object_by_id(new_weapon.id)
+					if obj then
+						adjust_weight(obj)
+						check_power()
+					end
+					return true
+				end)
+			end
+
+			return new_weapon
+		end
+		clone_patch_installed = true
+	end
+
+	-- Monkey-patch item_weapon scope functions to migrate the speed loader entry
+	-- to the new weapon id after a scope change.
+	-- The entry is captured BEFORE calling the original because
+	-- server_entity_on_unregister fires synchronously inside alife_clone_weapon
+	-- and clears speed_loaders[old_id] before we get control back.
+	local original_attach_scope = item_weapon.attach_scope
+	item_weapon.attach_scope = function(item, weapon)
+		local old_id    = weapon and weapon:id()
+		local entry     = old_id and speed_loaders[old_id]
+		local new_sec   = entry and (get_wpn_base(weapon) .. "_" .. item:section())
+		original_attach_scope(item, weapon)
+		if entry then
+			CreateTimeEvent("sl_migrate", "sl_attach_" .. old_id, 0, function()
+				db.actor:iterate_inventory(function(_, inv_item)
+					if inv_item:section() == new_sec and not speed_loaders[inv_item:id()] then
+						speed_loaders[inv_item:id()] = entry
+					end
+				end, db.actor)
+				return true
+			end)
+		end
+	end
+
+	local original_detach_scope = item_weapon.detach_scope
+	item_weapon.detach_scope = function(weapon)
+		local old_id    = weapon and weapon:id()
+		local entry     = old_id and speed_loaders[old_id]
+		local base_sec  = entry and get_wpn_base(weapon)
+		original_detach_scope(weapon)
+		if entry then
+			CreateTimeEvent("sl_migrate", "sl_detach_" .. old_id, 0, function()
+				db.actor:iterate_inventory(function(_, inv_item)
+					if inv_item:section() == base_sec and not speed_loaders[inv_item:id()] then
+						speed_loaders[inv_item:id()] = entry
+					end
+				end, db.actor)
+				return true
+			end)
+		end
+	end
+
+	if ver_dynamic_reload_speeds then
+		ver_dynamic_reload_speeds.add_reload_speed_increase(speed_loader_functor, 10)
+
+		-- Suppress the engine's built-in reload sound whenever a speed loader is
+		-- active on the current weapon.  Without this, ver_dynamic_reload_speeds
+		-- plays its own pitched snd_obj AND the engine fires its hud sound too,
+		-- causing audible duplication.
+		ver_dynamic_reload_speeds.add_sound_disabler_functor((function()
+			local wpn = db.actor and db.actor:active_item()
+			if not wpn then return false end
+			if not IsWeapon(wpn) then return false end
+			return speed_loaders[wpn:id()] ~= nil
+		end), 10)
+	end
+end

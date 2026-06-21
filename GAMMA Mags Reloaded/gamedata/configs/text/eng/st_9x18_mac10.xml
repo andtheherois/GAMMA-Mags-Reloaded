@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="windows-1251"?>
+
+<string_table>
+
+	<string id="st_mag_mac10_9x18_standard">
+		<text>Standard 9x18 M3 Magazine</text>
+	</string>
+	<string id="st_mag_mac10_9x18_standard_descr">
+		<text>Standard issue M3 "Grease Gun" magazine with a capacity of 32 rounds, compatible with the MAC-10.
+		</text>
+	</string>	
+	
+	<string id="st_mag_mac10_9x18_ext">
+		<text>Extended 9x18 M3 Magazine</text>
+	</string>
+	<string id="st_mag_mac10_9x18_ext_descr">
+		<text>Extended M3 "Grease Gun" magazine with a capacity of 50 rounds, compatible with the MAC-10.
+		</text>
+	</string>
+	
+</string_table>

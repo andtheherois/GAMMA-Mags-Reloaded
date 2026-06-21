@@ -1,0 +1,285 @@
+--[[
+=======================================================================================
+	Mag Pouches
+	Allows mag pouch items to be attached directly to an outfit.
+	Adds the pouch's mag limits to the outfit's magazine loadout slots.
+
+	Based on realistic_plates.script by Oleg152/Arti/Vintar.
+=======================================================================================
+--]]
+
+---------------------------------------------------------------------------------------
+--                                   VARIABLES
+---------------------------------------------------------------------------------------
+
+local gc    = game.translate_string
+local clr_r = utils_xml.get_color("d_red")
+local clr_g = utils_xml.get_color("d_green")
+local clr_y = utils_xml.get_color("yellow")
+local clr_2 = utils_xml.get_color("ui_gray_1")
+
+pouches = {}
+
+if not (magazines and magazine_binder) then return end
+
+local function is_pouch(obj)
+	if not obj then return end
+	return ini_sys:r_string_ex(obj:section(), "use1_functor") == "mag_pouches.precond_install"
+end
+
+---------------------------------------------------------------------------------------
+--                                   HELPERS
+---------------------------------------------------------------------------------------
+
+local function get_pouch_limits(sec)
+	local s, m, l = magazine_binder.get_loadout_slots(sec)
+	return {small = s, medium = m, large = l}
+end
+
+---------------------------------------------------------------------------------------
+--                                   WEIGHT
+---------------------------------------------------------------------------------------
+
+local function adjust_weight(obj)
+	if not IsOutfit(obj) then return end
+	local base_weight = SYS_GetParam(2, obj:section(), "inv_weight")
+	local upgrades = utils_item.get_upgrades_installed(obj)
+	local add_inv_weight = 0
+	for _, upgrade in pairs(upgrades) do
+		local section = ini_sys:r_string_ex(upgrade, "section")
+		local weight_adj = ini_sys:r_string_ex(section, "inv_weight")
+		if weight_adj then
+			local op = string.sub(weight_adj, 1, 1)
+			local val = tonumber(string.sub(weight_adj, 2))
+			add_inv_weight = op == "+" and add_inv_weight + val or add_inv_weight - val
+		end
+	end
+	base_weight = base_weight + add_inv_weight
+	local pouch = pouches[obj:id()]
+	if pouch then
+		base_weight = base_weight + SYS_GetParam(2, pouch.section, "inv_weight")
+	end
+	if db.actor then
+		local slot_armor = db.actor:item_in_slot(7)
+		if slot_armor and slot_armor:id() == obj:id() then
+			local mult = 1.0
+			if dynamic_armor_weight_mcm and dynamic_armor_weight_mcm.get_config then
+				mult = dynamic_armor_weight_mcm.get_config("mult") or 1.0
+			end
+			base_weight = base_weight * mult
+		end
+	end	
+	obj:set_weight(base_weight)
+end
+
+local function check_power()
+	local power_loss = 0
+	local outfit = db.actor and db.actor:item_in_slot(7)
+	if outfit and pouches[outfit:id()] then
+		local pouch = pouches[outfit:id()]
+		power_loss = SYS_GetParam(2, pouch.section, "power_restore_speed") or 0
+	end
+	if power_loss ~= 0 then
+		stamina.add_power_loss("pouch", power_loss)
+	else
+		stamina.remove_power_loss("pouch")
+	end
+end
+
+---------------------------------------------------------------------------------------
+--                                   CALLBACKS
+---------------------------------------------------------------------------------------
+
+function on_item_drag_dropped(from, to, slot_from, slot_to)
+	if not (slot_from == EDDListType.iActorBag and (slot_to == EDDListType.iActorBag or slot_to == EDDListType.iActorSlot)) then
+		return
+	end
+
+	if to and IsOutfit(to) and from and is_pouch(from) and precond_install(from, to) then
+		remove_pouch(to)
+		install_pouch(from, to)
+	end
+end
+
+function precond_remove(outfit)
+	local id = outfit and outfit:id() or 0
+	if pouches[id] then
+		if IsOutfit(outfit) then return "st_remove_pouch"
+		else pouches[id] = nil end
+	end
+end
+
+function remove_pouch(outfit)
+	local sec = outfit and outfit:section() or ""
+	if not pouches[outfit:id()] then return end
+	local pouch = pouches[outfit:id()]
+	alife_create_item(pouch.section, db.actor, {cond = pouch.cond})
+	
+	local snd = sound_object("interface\\inv_disassemble_cloth_fast_2")
+	snd:play(db.actor)
+	
+	pouches[outfit:id()] = nil
+	adjust_weight(outfit)
+	check_power()
+	magazine_binder.update_loadout_slots()
+	magazines.inventory_refresh()
+end
+
+function precond_install(pouch, outfit)
+	local outfit = outfit or db.actor:item_in_slot(7)
+	if not outfit then return end
+	if not IsOutfit(outfit) then return end
+	if not is_pouch(pouch) then return end
+	return "st_install_pouch"
+end
+
+function install_pouch(pouch, outfit)
+
+	if not outfit then
+		outfit = db.actor:item_in_slot(7)
+	end
+
+	if not outfit or not pouch then
+		return
+	end
+
+	remove_pouch(outfit)
+
+	pouches[outfit:id()] = {
+		section = pouch:section(),
+		cond    = pouch:condition(),
+	}
+
+	-- play sound
+	local snd = sound_object("interface\\inv_disassemble_cloth_fast_2")
+	snd:play(db.actor)
+
+	alife_release(pouch)
+	adjust_weight(outfit)
+	check_power()
+	magazine_binder.update_loadout_slots()
+end
+
+---------------------------------------------------------------------------------------
+--                                   LOADOUT BONUS
+---------------------------------------------------------------------------------------
+
+local function pouch_bonus_provider()
+	local outfit = db.actor and db.actor:item_in_slot(7)
+	if not outfit then return end
+	local pouch = pouches[outfit:id()]
+	if not pouch then return end
+	return get_pouch_limits(pouch.section)
+end
+
+---------------------------------------------------------------------------------------
+--                                   UI
+---------------------------------------------------------------------------------------
+
+original_build_desc_header = ui_item.build_desc_header
+function ui_item.build_desc_header(obj, sec, str)
+	local _str  = ""
+	local _str2 = original_build_desc_header(obj, sec, str)
+
+	if obj and IsOutfit(obj) then
+		local pouch = pouches[obj:id()]
+		if pouch then
+			local cond = math.floor(pouch.cond * 100)
+			_str = _str .. gc("st_dot") .. " "
+				.. gc("st_pouch_in").. ":" .. " "
+				.. utils_xml.get_color_con(cond)
+				.. ui_item.get_sec_name(pouch.section).. "\\n"
+				--.. " (" .. cond .. "%)\\n"
+		end
+	end
+
+	return _str2 .. _str
+end
+
+---------------------------------------------------------------------------------------
+--                                   DISASSEMBLY
+---------------------------------------------------------------------------------------
+
+local DOutfit = item_parts.disassembly_outfit
+function item_parts.disassembly_outfit(outfit, tool)
+	remove_pouch(outfit)
+	DOutfit(outfit, tool)
+end
+
+---------------------------------------------------------------------------------------
+--                                   SAVE/LOAD
+---------------------------------------------------------------------------------------
+
+function save_state(mdata)
+	mdata.pouches = pouches
+end
+
+function load_state(mdata)
+	pouches = mdata.pouches or {}
+end
+
+function actor_on_first_update()
+	if magazine_binder.register_loadout_bonus then
+		magazine_binder.register_loadout_bonus(pouch_bonus_provider)
+	else
+		printf("![mag_pouches] magazine_binder.register_loadout_bonus not found - make sure the modified magazine_binder.script is installed")
+	end
+	magazine_binder.update_loadout_slots()
+end
+
+function server_entity_on_unregister(se_obj)
+	pouches[se_obj.id] = nil
+end
+
+function slot_move(obj)
+	on_move(nil, obj)
+end
+
+function on_move(_, item)
+	if item and IsOutfit(item) then
+		adjust_weight(item)
+		check_power()
+		magazine_binder.update_loadout_slots()
+	end
+end
+
+---------------------------------------------------------------------------------------
+--                                   ICON LAYER
+---------------------------------------------------------------------------------------
+
+local get_item_axis = utils_xml.get_item_axis
+local icon_scale    = 0.65
+local icon_offset   = { x = -100, y = 173 }
+
+local function get_pouch_icon(cell, obj, sec)
+	if cell.showcase ~= 0 then return end
+	if not IsOutfit(obj) then return end
+	local pouch = pouches[obj:id()]
+	if not pouch then return end
+	local pouch_axis  = get_item_axis(pouch.section)
+	local outfit_axis = get_item_axis(sec)
+	if not (pouch_axis and outfit_axis) then return end
+	return {
+		icon_layer       = pouch.section,
+		icon_layer_x     = (outfit_axis.w / icon_scale) - pouch_axis.w + icon_offset.x,
+		icon_layer_y     = icon_offset.y,
+		icon_layer_scale = icon_scale,
+	}
+end
+
+---------------------------------------------------------------------------------------
+--                                   GAME START
+---------------------------------------------------------------------------------------
+
+function on_game_start()
+	rax_icon_layers.register("mag_pouch", get_pouch_icon)
+	custom_functor_autoinject.add_functor("add_pouch", precond_remove, precond_remove, nil, remove_pouch, true)
+	RegisterScriptCallback("ActorMenu_on_item_drag_drop",    on_item_drag_dropped)
+	RegisterScriptCallback("save_state",                     save_state)
+	RegisterScriptCallback("load_state",                     load_state)
+	RegisterScriptCallback("actor_on_first_update",          actor_on_first_update)
+	RegisterScriptCallback("ActorMenu_on_item_after_move",   on_move)
+	RegisterScriptCallback("actor_item_to_slot",             slot_move)
+	RegisterScriptCallback("actor_item_to_ruck",             slot_move)
+	RegisterScriptCallback("server_entity_on_unregister",    server_entity_on_unregister)
+end

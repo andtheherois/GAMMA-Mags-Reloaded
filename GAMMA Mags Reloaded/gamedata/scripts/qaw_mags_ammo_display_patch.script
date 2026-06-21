@@ -1,0 +1,64 @@
+-- qaw_mags_ammo_display_patch.script
+-- Shows the top round's ammo type for carried magazines in Quick Action Wheel.
+
+local installed = false
+
+local function get_ammo_title_for_mag_id(id, fallback_section)
+    if not (id and magazine_binder and magazine_binder.get_data) then
+        return fallback_section and ui_item.get_sec_name(fallback_section) or ""
+    end
+
+    local mag_data = magazine_binder.get_data(id)
+    local loaded = mag_data and mag_data.loaded
+    local ammo_sec = loaded and loaded[#loaded]
+
+    if ammo_sec and ini_sys:section_exist(ammo_sec) then
+        return ui_item.get_sec_name(ammo_sec)
+    end
+
+    return "Empty"
+end
+
+local function install()
+    if installed then return true end
+
+    local qaw = haru_quick_action_wheel_mcm
+    local manager = qaw and qaw.TAB_MANAGER
+    local classes = manager and manager.classes
+    local mag_cls = classes and classes.QMagazineWheelOption
+
+    if not (mag_cls and mag_cls.OnState) then
+        return false
+    end
+
+    if mag_cls.__qaw_mags_ammo_display_patch then
+        installed = true
+        return true
+    end
+
+    local touched_state = haru_arm and haru_arm.States and haru_arm.States.TOUCHED
+    if not touched_state then
+        return false
+    end
+
+    local original = mag_cls.OnState
+    mag_cls.OnState = function(self, prev_state, state)
+        local result = original(self, prev_state, state)
+
+        local qaw_gui = haru_quick_action_wheel_mcm and haru_quick_action_wheel_mcm.GUI
+        if state == touched_state and qaw_gui and qaw_gui.SetTitle then
+            qaw_gui:SetTitle(get_ammo_title_for_mag_id(self.item_id, self.section))
+        end
+
+        return result
+    end
+
+    mag_cls.__qaw_mags_ammo_display_patch = true
+    installed = true
+    printf("[QAW MAGS AMMO DISPLAY] installed magazine hover title patch")
+    return true
+end
+
+function on_game_start()
+    CreateTimeEvent("qaw_mags_ammo_display_patch", "install", 0.1, install)
+end

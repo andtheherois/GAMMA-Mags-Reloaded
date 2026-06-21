@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="windows-1251"?>
+
+<string_table>
+	<string id="st_speed_shotgun">
+		<text>Shotgun Side Saddle</text>
+	</string>	
+	<string id="st_speed_shotgun_desc">
+		<text>Side Saddle sized for shotgun shells. It makes reloading faster on weapons that dont rely on magazines.</text>
+	</string>
+
+	<string id="st_speed_rifle">
+		<text>Rifle Side Saddle</text>
+	</string>	
+	<string id="st_speed_rifle_desc">
+		<text>Side Saddle sized for rifle rounds. It makes reloading faster on weapons that dont rely on magazines.</text>
+	</string>
+
+	<string id="st_speed_loader_attached ">
+		<text>Speed loader attached</text>
+	</string>
+
+	<string id="st_install_speed_loader">
+		<text>attach > side saddle</text>
+	</string>
+
+	<string id="st_remove_speed_loader">
+		<text>remove side saddle</text>
+	</string>
+	
+	<string id="st_pouch_in">
+		<text>Attached pouch</text>
+	</string>
+	
+	<string id="st_install_pouch">
+		<text>attach > pouch</text>
+	</string>
+
+	<string id="st_remove_pouch">
+		<text>remove pouch</text>
+	</string>	
+	
+	<string id="st_jam_chance_increase">
+		<text>Jam chance increase:</text>
+	</string>
+
+	<string id="st_mag_compatible_mags">
+		<text>Compatible Magazines</text>
+	</string>
+	
+    <string id="mag_kriss45">
+		<text>Standard .45 ACP Vector Magazine</text>
+	</string>
+	<string id="mag_kriss45_descr">
+		<text>
+		Standard .45 ACP Vector magazine with a capacity of 30 rounds.
+		</text>
+	</string>
+	
+	<string id="mag_kriss9">
+		<text>Extended 9x19 Glock Magazine</text>
+	</string>
+	<string id="mag_kriss9_descr">
+		<text>
+		Extneded Glock magazine for 9x19 Parabellum cartridges with a capacity of 33 rounds.
+		</text>
+	</string>
+	
+	<string id="ext_mag_kriss_drum">
+		<text>.45 ACP Vector Drum Magazine</text>
+	</string>
+	<string id="ext_mag_kriss_drum_descr">
+		<text>
+		.45 ACP Vector drum magazine with a capacity of 45 rounds.
+		</text>
+	</string>
+	
+	<string id="ext_mag_kriss9_drum">
+		<text>Standard 9x19 Glock Drum Magazine</text>
+	</string>
+	<string id="ext_mag_kriss9_drum_descr">
+		<text>
+		Glock drum magazine for 9x19 Parabellum cartridges with a capacity of 50 rounds.
+		</text>
+	</string>	
+	
+	<string id="st_mag_pmm_9x18_fmj">
+		<text>Extended 9x18 PM magazine</text>
+	</string>
+	<string id="st_mag_pmm_9x18_fmj_descr">
+		<text>
+			Extended PM magazine holding 20 rounds.
+		</text>
+	</string>	
+	
+	<string id="st_mag_beretta_9x19_fmj">
+		<text>Standard 9x19 Beretta 92F Magazine</text>
+	</string>
+	<string id="st_mag_beretta_9x19_fmj_descr">
+		<text>
+		Standard-issue Beretta 92F Magazine that holds 17 rounds.
+		</text>
+	</string>
+
+	<string id="st_mag_ppp_px4_9x19_fmj">
+		<text>Standard 9x19 PX4 Magazine</text>
+	</string>
+	<string id="st_mag_ppp_px4_9x19_fmj_descr">
+		<text>
+            Standard PX4 Storm Magazine. The magazine has a slightly different feeding lip design which makes it incompatible with the 92F.
+		</text>
+	</string>	
+	
+	<string id="st_mag_remingtonla_300">
+		<text>Standard .300 Remington 700 Magazine</text>
+	</string>
+	<string id="st_mag_remingtonla_300_descr">
+		<text>
+		Standard Remington 700 Magazine with a capacity of 5 rounds.
+		</text>
+	</string>
+
+	<string id="st_mag_ar15_762x39">
+		<text>Standard 7.62x39 STANAG Magazine</text>
+	</string>
+	<string id="st_mag_ar15_762x39_descr">
+		<text>
+		Standard STANAG Pattern Magazine for 7.62x39 ammo that holds 30 rounds.
+		</text>
+	</string>	
+
+	<string id="st_mag_ppsh41_7.62x25_p">
+		<text>Standard 7.62x25 PPSh41 Drum</text>
+	</string>
+	<string id="st_mag_ppsh41_7.62x25_p_descr">
+		<text>
+		Standard PPSh41 Drum that hold 71 rounds of 7.62x25 ammo.
+		</text>
+	</string>
+
+	<string id="st_mag_ppsh41_7.62x25_stick">
+		<text>Standard 7.62x25 PPSh41 Stick Magazine</text>
+	</string>
+	<string id="st_mag_ppsh41_7.62x25_stick_descr">
+		<text>
+		Standard PPSh41 stick magazine that hold 35 rounds of 7.62x25 ammo. These are much easier to carry in your pockets than the drum magazine.
+		</text>
+	</string>
+	
+	<string id="st_mag_stanag_short">
+		<text>Short 5.56x45 Magazine</text>
+	</string>
+	<string id="st_mag_stanag_short_descr">
+		<text>
+		20-round PMAG style magazine for STANAG pattern rifles.
+		</text>
+	</string>
+
+	<string id="st_mag_nato_5.45x39_short">
+		<text>Modified Short 5.45x39 Magazine</text>
+	</string>
+	<string id="st_mag_nato_5.45x39_short_descr">
+		<text>
+			20-round PMAG style magazine for STANAG pattern rifles modified to feed 5.45x39 rounds. Why anyone would modify a rifle in this way is anyone's guess.
+		</text>
+	</string>
+	<string id="ui_mcm_magazines_rant">
+	<text>An explanation of how combat reloading (reloading with inventory closed) works:\n\n
+
+	\n\nWith this option off, you must have a free slot available in your loadout of the appropriate magazine size for it to return to your loadout. If no appropriately sized slot is found, the magazine will be returned to your inventory.\n
+	\n\nWith the option on, Magazines will cycle in and out of your inventory without the need for an appropriately sized slot to be available.\n</text>
+	</string>
+	<string id="ui_mcm_magazines_gameplay_three_hands">
+			<text>Place an ejected magazine back into your loadout even if you have no free slots.</text>
+	</string>
+	<string id="ui_mcm_magazines_gameplay_three_hands_desc">
+			<text>Play how you want.</text>
+	</string>	
+</string_table>

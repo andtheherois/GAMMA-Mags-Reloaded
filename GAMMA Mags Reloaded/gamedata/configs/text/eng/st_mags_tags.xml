@@ -1,0 +1,17 @@
+<string_table>
+	<string id="ui_mcm_menu_dii_custom_layers_mags">
+		<text>Mag Tags for GAMMA</text>
+	</string>
+	<string id="ui_mcm_dii_mags_tags_ammo_show">
+		<text>Toggle ammo labels for Mags</text>
+	</string>
+	<string id="ui_mcm_dii_mags_tags_retool_show">
+		<text>Toggle retool icon for Mags</text>
+	</string>	
+	<string id="ui_mcm_dii_mags_tags_jam_show">
+		<text>Toggle jam chance increase icon for Mags</text>
+	</string>
+	<string id="ui_mcm_dii_mags_tags_fast_show">
+		<text>Toggle reload speed increase icon for Mags</text>
+	</string>		
+</string_table>

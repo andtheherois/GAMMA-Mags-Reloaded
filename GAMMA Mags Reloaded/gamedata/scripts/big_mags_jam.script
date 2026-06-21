@@ -1,0 +1,86 @@
+if not (magazines and magazine_binder) then return end
+
+local get_mag_loaded, get_size = magazine_binder.get_mag_loaded, magazine_binder.get_size
+local penalty_providers = {}
+
+-- Addon API: register a named function that returns an additional jam
+-- percentage for the currently loaded weapon.
+function register_penalty_provider(name, provider)
+	if type(name) ~= "string" or type(provider) ~= "function" then return false end
+	penalty_providers[name] = provider
+	return true
+end
+
+function remove_penalty_provider(name)
+	penalty_providers[name] = nil
+end
+
+-- returns flat jam penalty as a percentage for a mag section string
+-- only applies if overheat_multiplier exists in the magazine .ini section
+function get_flat_jam_penalty_for_sec(sec)
+	if not sec then return 0 end
+	local overheat_mult = ini_sys:r_float_ex(sec, 'overheat_multiplier')
+
+	if overheat_mult ~= nil then
+		return overheat_mult
+	end
+
+	return 0
+end
+
+-- returns flat jam penalty as a percentage for a loaded weapon
+local function get_total_jam_penalty(wpn)
+	local mag_data = get_mag_loaded(wpn:id())
+	if not mag_data then return 0 end
+
+	local penalty = big_mags_jam.get_flat_jam_penalty_for_sec(mag_data.section)
+	for name, provider in pairs(penalty_providers) do
+		local ok, value = pcall(provider, wpn, mag_data)
+		if ok then
+			penalty = penalty + (tonumber(value) or 0)
+		else
+			printf("[BIG MAGS JAM] ERROR | penalty provider %s failed: %s", name, tostring(value))
+		end
+	end
+
+	return math.max(0, penalty)
+end
+
+function get_total_penalty(wpn)
+	return get_total_jam_penalty(wpn)
+end
+
+-- patch calculate_jam: call original first, then do a separate flat-penalty roll
+-- penalty is a percentage, so multiply by 10 to convert to arti_jamming's 0-1000 scale
+local calc_jam_orig = arti_jamming.calculate_jam
+function arti_jamming.calculate_jam(wpn, old_ammo)
+	calc_jam_orig(wpn, old_ammo)
+
+	-- skip if already jammed by the base calculation
+	if arti_jamming.get_jammed(wpn:id()) then return end
+
+	local penalty = get_total_jam_penalty(wpn) * 10
+	if penalty <= 0 then return end
+
+	if math.random(1000) <= penalty then
+		arti_jamming.set_jam_status(wpn:id(), 2)
+		arti_jamming.send_msg(game.translate_string("ui_st_jam"), 1)
+	end
+end
+
+local send_msg_orig = arti_jamming.send_msg
+function arti_jamming.send_msg(msg, verbosity)
+	if msg == nil then
+		msg = game.translate_string("ui_st_unjam")
+	end
+	if msg == nil or msg == "" then return end
+	return send_msg_orig(msg, verbosity)
+end
+
+-- patch get_jam_chance so it reflects the flat penalty (return value is already a percentage)
+local get_jam_chance_orig = arti_jamming.get_jam_chance
+function arti_jamming.get_jam_chance(wpn)
+	local jc = get_jam_chance_orig(wpn)
+	if not jc then jc = 0 end
+	return jc + get_total_jam_penalty(wpn)
+end

@@ -1,0 +1,51 @@
+-- mags_arti_jamming_patch.script
+-- Patches zzzz_arti_jamming_repairs.custom_disassembly_weapon to correctly eject
+-- the magazine into the actor's inventory before the weapon is released.
+-- Without this, the async eject_mag call races against alife_release and the mag is lost.
+
+if not zzzz_arti_jamming_repairs then
+	printf("mags_arti_jamming_patch: zzzz_arti_jamming_repairs not found, skipping")
+	return
+end
+
+if not magazines then
+	printf("mags_arti_jamming_patch: magazines not found, skipping")
+	return
+end
+
+local get_mag_loaded      = magazine_binder.get_mag_loaded
+local set_mag_data        = magazine_binder.set_data
+local toggle_carried_mag  = magazine_binder.toggle_carried_mag
+local is_supported_weapon = magazine_binder.is_supported_weapon
+
+local old_custom_disassembly_weapon = zzzz_arti_jamming_repairs.custom_disassembly_weapon
+
+zzzz_arti_jamming_repairs.custom_disassembly_weapon = function(obj, obj_d)
+	local mag_data = is_supported_weapon(obj) and get_mag_loaded(obj:id())
+	if mag_data then
+		local id = obj:id()
+		-- Create the mag on the actor synchronously before the weapon is released
+		local se_mag = alife_create_item(mag_data.section, db.actor)
+		if se_mag then
+			mag_data.is_weapon = false
+			set_mag_data(se_mag.id, mag_data)
+			create_time_event("mag_redux", "dis_eject_" .. id, 0, function()
+				toggle_carried_mag(se_mag.id)
+				return true
+			end)
+		end
+		-- Clear weapon mag data before original runs
+		set_mag_data(id, {
+			section = "no_mag",
+			loaded  = {},
+			is_weapon = true,
+		})
+		-- Stub mag_support.eject_mag so the original doesn't double-eject
+		local real_eject = mag_support.eject_mag
+		mag_support.eject_mag = function() end
+		old_custom_disassembly_weapon(obj, obj_d)
+		mag_support.eject_mag = real_eject
+	else
+		old_custom_disassembly_weapon(obj, obj_d)
+	end
+end

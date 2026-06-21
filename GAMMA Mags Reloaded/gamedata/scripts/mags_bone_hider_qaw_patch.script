@@ -1,0 +1,119 @@
+-- mags_bone_hider_qaw_patch.script
+-- Scoped QAW compatibility patch for GAMMA Mags Reloaded mag bone visibility.
+--
+-- This file intentionally lives inside GAMMA Mags Reloaded instead of editing
+-- Haru QAW scripts. It patches QAW after its TabManager exposes the option
+-- classes through haru_quick_action_wheel_mcm.TAB_MANAGER.classes.
+
+local announced = false
+local orig_set_pending
+local orig_clear_pending
+local orig_delay_load_weapon
+local installed_delay_wrapper = false
+local installed_qaw_methods = false
+
+local function protect_reload(weapon, mag)
+    if not weapon then return end
+
+    if mag and mag_reload_speed and mag_reload_speed.set_pending_mag then
+        mag_reload_speed.set_pending_mag(mag)
+    end
+
+    if mag_bone_hider and mag_bone_hider.begin_reload then
+        mag_bone_hider.begin_reload(weapon)
+    end
+end
+
+local function install_delay_wrapper()
+    if installed_delay_wrapper then return true end
+
+    if not (magazines and magazines.delay_load_weapon
+            and mag_reload_speed and mag_reload_speed.set_pending_mag and mag_reload_speed.clear_pending_mag) then
+        return false
+    end
+
+    orig_set_pending = mag_reload_speed.set_pending_mag
+    mag_reload_speed.set_pending_mag = function(mag)
+        orig_set_pending(mag)
+        announced = true
+    end
+
+    orig_clear_pending = mag_reload_speed.clear_pending_mag
+    mag_reload_speed.clear_pending_mag = function()
+        orig_clear_pending()
+        announced = false
+    end
+
+    orig_delay_load_weapon = magazines.delay_load_weapon
+    magazines.delay_load_weapon = function(id, magazine, pre_table, first_round)
+        if not announced and magazine then
+            announced = true
+            protect_reload(db.actor and db.actor:active_item(), nil)
+            printf("[MAGS BONE HIDER QAW] late wheel reload detected (%s) -- protected mag bones", magazine:section())
+        end
+        return orig_delay_load_weapon(id, magazine, pre_table, first_round)
+    end
+
+    installed_delay_wrapper = true
+    printf("[MAGS BONE HIDER QAW] installed delay_load_weapon fallback")
+    return true
+end
+
+local function patch_qaw_method(cls, method_name, wrapper)
+    if not cls or not cls[method_name] then return false end
+    local key = "__mags_bone_hider_qaw_patch_" .. method_name
+    if cls[key] then return true end
+
+    local original = cls[method_name]
+    cls[method_name] = function(self, ...)
+        return wrapper(original, self, ...)
+    end
+    cls[key] = true
+    return true
+end
+
+local function install_qaw_method_patches()
+    if installed_qaw_methods then return true end
+
+    local qaw = haru_quick_action_wheel_mcm
+    local manager = qaw and qaw.TAB_MANAGER
+    local classes = manager and manager.classes
+    if not classes then return false end
+
+    local mag_cls = classes.QMagazineWheelOption
+    local ammo_cls = classes.QAmmoWheelOption
+    if not mag_cls and not ammo_cls then return false end
+
+    local patched_mag = patch_qaw_method(mag_cls, "LoadInActiveWeapon", function(original, self, obj)
+        local wpn = db.actor and db.actor:active_item()
+        protect_reload(wpn, obj)
+        local result = original(self, obj)
+        protect_reload(wpn, nil)
+        return result
+    end)
+
+    local patched_ammo = patch_qaw_method(ammo_cls, "LoadInActiveWeapon", function(original, self, ...)
+        local wpn = db.actor and db.actor:active_item()
+        local pending_mag = magazines and magazines.find_magazine and magazines.find_magazine(wpn, self.section)
+        protect_reload(wpn, pending_mag)
+        local result = original(self, ...)
+        protect_reload(wpn, nil)
+        return result
+    end)
+
+    installed_qaw_methods = patched_mag or patched_ammo
+    if installed_qaw_methods then
+        printf("[MAGS BONE HIDER QAW] installed QAW class method wrappers (mag=%s ammo=%s)", tostring(patched_mag), tostring(patched_ammo))
+    end
+    return installed_qaw_methods
+end
+
+local function install_when_ready()
+    install_delay_wrapper()
+    if install_qaw_method_patches() then return true end
+    return false
+end
+
+function on_game_start()
+    CreateTimeEvent("mags_bone_hider_qaw_patch", "install", 0.1, install_when_ready)
+end
