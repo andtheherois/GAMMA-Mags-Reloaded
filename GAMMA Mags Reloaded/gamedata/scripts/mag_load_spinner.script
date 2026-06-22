@@ -85,13 +85,19 @@ local function make_spinner(ico)
     return spinner
 end
 
--- darkened icon color, or nil if dimming is off
-local function dim_color()
+-- darkened icon channel value (0-255), or nil if dimming is off
+local function dim_channel()
     if cfg("spinner_dim") == false then return nil end
     local amount = tonumber(cfg("spinner_dim_amount")) or 25
     if amount <= 0 then return nil end
     local v = math.floor(255 * (1 - amount / 100))
-    v = math.max(0, math.min(255, v))
+    return math.max(0, math.min(255, v))
+end
+
+-- darkened icon color, or nil if dimming is off
+local function dim_color()
+    local v = dim_channel()
+    if not v then return nil end
     return GetARGB(255, v, v, v)
 end
 
@@ -112,26 +118,53 @@ local flash_start = 0
 -- (clr_list["shadow"] = GetARGB(200,20,20,20))
 local SHADOW_NORMAL = GetARGB(200, 20, 20, 20)
 
+-- shape applied to the linear fade position p in [0,1]
+local function ease(p, mode)
+    if mode == "linear" then
+        return p
+    elseif mode == "ease_in" then
+        return p * p
+    elseif mode == "ease_out" then
+        return 1 - (1 - p) * (1 - p)
+    end
+    -- ease_in_out (smoothstep)
+    return p * p * (3 - 2 * p)
+end
+
 -- oscillating icon alpha for the fade in/out pulse
 local function flash_alpha()
-    local strength = tonumber(cfg("box_flash_strength")) or 90
-    strength = math.max(0, math.min(90, strength))
-    local speed = tonumber(cfg("box_flash_speed")) or 75
+    local strength = tonumber(cfg("box_flash_strength")) or 95
+    strength = math.max(0, math.min(100, strength))
+    local speed = tonumber(cfg("box_flash_speed")) or 90
     local hz = speed / 100
-    -- cosine of time since load start: s = 1 (full) at t=0, then dips and returns.
-    -- 1 Hz at 100% speed
-    local s = 0.5 + 0.5 * math.cos((time_global() - flash_start) * 0.001 * hz * 2 * math.pi)
+
+    -- position within one fade cycle, 1 Hz at 100% speed
+    -- need this to fade back :3
+    local phase = ((time_global() - flash_start) * 0.001 * hz) % 1.0
+    local dip = (phase < 0.5) and (phase * 2) or ((1 - phase) * 2)
+
+    -- brightness s: 1 (full) at t=0, dips toward lo, then returns
+    local s = 1 - ease(dip, cfg("flash_easing") or "ease_in_out")
+
     local lo = math.floor(255 * (1 - strength / 100))
     return math.floor(lo + (255 - lo) * s)
 end
 
-local function apply_flash(ci)
-    local a = flash_alpha()
-    ci.ico:SetTextureColor(GetARGB(a, 255, 255, 255))
+-- paint a cell icon (and its shadow) at a given alpha and grey channel
+local function paint_alpha(ci, a, c)
+    c = c or 255
+    ci.ico:SetTextureColor(GetARGB(a, c, c, c))
     -- fade the shadow in step so the icon goes translucent, not black
     if ci.shadow then
         ci.shadow:SetTextureColor(GetARGB(math.floor(200 * a / 255), 20, 20, 20))
     end
+end
+
+-- alpha of the most recent pulse paint
+local flash_last = 255
+local function apply_flash(ci, c)
+    flash_last = flash_alpha()
+    paint_alpha(ci, flash_last, c)
 end
 
 local function clear_flash(ci)
@@ -164,7 +197,23 @@ end
 -- [cc_id] = { [mag_id] = true } cells we tinted last tick, so they restore cleanly
 local mag_flash_prev = {}
 
+-- a cell that finishes mid-pulse fades back to full instead of snapping momentally
+local mag_release = {}
+local box_release = nil
+local RELEASE_MS = 200
+
+-- fade-back (what a useful comment huh? xD)
+local function fade_back(rec, tg)
+    local t = (tg - rec.start) / RELEASE_MS
+    if t >= 1 then return 255, 255 end
+    local e = ease(t, "ease_out")
+    local from_c = rec.from_c or 255
+    return math.floor(rec.from + (255 - rec.from) * e),
+           math.floor(from_c + (255 - from_c) * e)
+end
+
 local function restore_mag_flash()
+    mag_release = {}
     if not next(mag_flash_prev) then return end
     local m = actor_menu_cc()
     if m then
@@ -182,6 +231,8 @@ local function restore_mag_flash()
 end
 
 local function mag_flash_step(m)
+    local tg = time_global()
+    local dimc = dim_channel()  -- dim & flash stack
     local now = {}
     for cc_id in pairs(watched_bags) do
         local cc = m.CC[cc_id]
@@ -191,7 +242,8 @@ local function mag_flash_step(m)
                 if ci and ci.ico and ci.ID then
                     local id = tonumber(ci.ID)
                     if id and active[id] then
-                        apply_flash(ci)
+                        apply_flash(ci, dimc)
+                        mag_release[id] = nil
                         now[cc_id] = now[cc_id] or {}
                         now[cc_id][id] = true
                     end
@@ -199,20 +251,35 @@ local function mag_flash_step(m)
             end
         end
     end
-    -- clear cells tinted last tick whose magazine is no longer loading
+
+    -- mags that stopped loading since last tick: do fade-back from where they left off
     for cc_id, ids in pairs(mag_flash_prev) do
-        local cc = m.CC[cc_id]
-        if cc and cc.cell then
-            for i = 1, #cc.cell do
-                local ci = cc.cell[i]
-                if ci and ci.ico and ci.ID then
-                    local id = tonumber(ci.ID)
-                    if id and ids[id] and not (now[cc_id] and now[cc_id][id]) then clear_flash(ci) end
-                end
+        for id in pairs(ids) do
+            if not (now[cc_id] and now[cc_id][id]) and not mag_release[id] then
+                mag_release[id] = { start = tg, from = flash_last, from_c = dimc or 255 }
             end
         end
     end
     mag_flash_prev = now
+
+    -- paint the in-flight fade-backs, then drop any that have settled at full
+    if next(mag_release) then
+        for cc_id in pairs(watched_bags) do
+            local cc = m.CC[cc_id]
+            if cc and cc.cell then
+                for i = 1, #cc.cell do
+                    local ci = cc.cell[i]
+                    if ci and ci.ico and ci.ID then
+                        local id = tonumber(ci.ID)
+                        if id and mag_release[id] then paint_alpha(ci, fade_back(mag_release[id], tg)) end
+                    end
+                end
+            end
+        end
+        for id, r in pairs(mag_release) do
+            if (tg - r.start) >= RELEASE_MS then mag_release[id] = nil end
+        end
+    end
 end
 
 local function box_flash_step(m)
@@ -233,24 +300,42 @@ local function box_flash_step(m)
     end
     apply_flash(ci)
     flash_prev = { cc_id = cc_id, sec = sec }
+    box_release = nil
+end
+
+-- the load ended: fade the last-flashed box back to full from where it left off
+local function begin_box_release()
+    if not flash_prev then return end
+    box_release = { cc_id = flash_prev.cc_id, sec = flash_prev.sec, start = time_global(), from = flash_last }
+    flash_prev = nil
+end
+
+local function box_release_step(m)
+    if not box_release then return end
+    local tg = time_global()
+    local cc = m.CC[box_release.cc_id]
+    local ci = cc and cc:GetCell_SEC(box_release.sec)
+    if ci and ci.ico then paint_alpha(ci, fade_back(box_release, tg)) end
+    if (tg - box_release.start) >= RELEASE_MS then box_release = nil end
 end
 
 local function flash_tick()
-    if not next(active) then
-        restore_flash()
-        restore_mag_flash()
-        return
-    end
     local m = actor_menu_cc()
     if not m then return end
 
-    if cfg("box_flash_enable") == false then
-        restore_flash()
-    else
+    -- source ammo box flash
+    if next(active) and cfg("box_flash_enable") ~= false then
         box_flash_step(m)
+    elseif cfg("box_flash_enable") == false then
+        restore_flash()
+        box_release = nil
+    elseif flash_prev then
+        begin_box_release()
     end
+    box_release_step(m)
 
-    if mag_flash_on() then
+    -- magazine flash
+    if mag_flash_on() and (next(active) or next(mag_release) or next(mag_flash_prev)) then
         mag_flash_step(m)
     else
         restore_mag_flash()
@@ -267,35 +352,59 @@ function begin(id)
 end
 
 function finish(id)
-    if id then active[id] = nil end
+    if not id or not active[id] then return end
+    active[id] = nil
+    if mag_flash_on() then
+        mag_release[id] = { start = time_global(), from = flash_last, from_c = dim_channel() or 255 }
+    end
+    if not next(active) and cfg("box_flash_enable") ~= false then begin_box_release() end
 end
 
 function clear_all()
-    if next(active) then active = {} end
+    if not next(active) then return end
+    local tg = time_global()
+    if mag_flash_on() then
+        local fromc = dim_channel() or 255
+        for id in pairs(active) do
+            mag_release[id] = { start = tg, from = flash_last, from_c = fromc }
+        end
+    end
+    active = {}
+    if cfg("box_flash_enable") ~= false then begin_box_release() end
 end
 
--- Reapply the box fade to one container right after its cells were rebuilt
+-- Reapply the box fade (pulse or fade-back) right after its cells were rebuilt
 local function reapply_box_flash(cc)
     if not (cc and cc.ID and flash_bag_set[cc.ID]) then return end
-    if not next(active) then return end
     if cfg("box_flash_enable") == false then return end
-    local sec = magazines and magazines.get_loading_box_section and magazines.get_loading_box_section()
-    if not sec then return end
-    local ci = cc:GetCell_SEC(sec)
-    if ci and ci.ico then apply_flash(ci) end
+    if next(active) then
+        local sec = magazines and magazines.get_loading_box_section and magazines.get_loading_box_section()
+        if not sec then return end
+        local ci = cc:GetCell_SEC(sec)
+        if ci and ci.ico then apply_flash(ci) end
+    elseif box_release and box_release.cc_id == cc.ID then
+        local ci = cc:GetCell_SEC(box_release.sec)
+        if ci and ci.ico then paint_alpha(ci, fade_back(box_release, time_global())) end
+    end
 end
 
--- Reapply the magazine fade to one bag right after its cells were rebuilt
+-- Reapply the magazine fade (pulse or fade-back) right after its cells were rebuilt
 local function reapply_mag_flash(cc)
     if not (cc and cc.ID and watched_bags[cc.ID]) then return end
-    if not next(active) then return end
     if not mag_flash_on() then return end
     if not cc.cell then return end
+    if not (next(active) or next(mag_release)) then return end
+    local tg = time_global()
+    local dimc = dim_channel()
     for i = 1, #cc.cell do
         local ci = cc.cell[i]
         if ci and ci.ico and ci.ID then
             local id = tonumber(ci.ID)
-            if id and active[id] then apply_flash(ci) end
+            if id and active[id] then
+                apply_flash(ci, dimc)
+            elseif id and mag_release[id] then
+                paint_alpha(ci, fade_back(mag_release[id], tg))
+            end
         end
     end
 end
@@ -317,7 +426,7 @@ function utils_ui.UICellContainer:Update(item_info, no_info, hide)
             if ci and ci.ico and ci.ID then
                 local id = tonumber(ci.ID)
                 if id and active[id] then
-                    -- mag flash owns the icon color when on, so skip the static dim then
+                    -- when flash is on, its pulse already bakes the dim grey into the tint
                     if dim and not mag_flash_on() then ci.ico:SetTextureColor(dim) end
                     if not ci.__mag_spinner then
                         ci.__mag_spinner = make_spinner(ci.ico)
@@ -328,7 +437,7 @@ function utils_ui.UICellContainer:Update(item_info, no_info, hide)
                 elseif ci.__mag_spinner then
                     ci.__mag_spinner:Show(false)
                     ci.__mag_spinner = nil
-                    ci.ico:SetTextureColor(WHITE)
+                    if not (mag_flash_on() and mag_release[id]) then ci.ico:SetTextureColor(WHITE) end
                 end
             end
         end

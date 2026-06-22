@@ -87,7 +87,7 @@
         <text>Flash Strength (%)</text>
     </string>
     <string id="ui_mcm_magazines_spinner_box_flash_strength_desc">
-        <text>How far the icon fades at the dim end of the pulse. Higher is more transparent. Shared by the source ammo and magazine flash.</text>
+        <text>How far the icon fades at the dim end of the pulse. Higher is more transparent, 100% fades it fully out. Shared by the source ammo and magazine flash.</text>
     </string>
 
     <!-- Flash speed (shared by source ammo and magazine) -->
@@ -96,6 +96,26 @@
     </string>
     <string id="ui_mcm_magazines_spinner_box_flash_speed_desc">
         <text>Pulse speed. 100% is about one fade cycle per second. Shared by the source ammo and magazine flash.</text>
+    </string>
+
+    <!-- Flash easing (shared by source ammo and magazine) -->
+    <string id="ui_mcm_magazines_spinner_flash_easing">
+        <text>Flash Curve</text>
+    </string>
+    <string id="ui_mcm_magazines_spinner_flash_easing_desc">
+        <text>Shape of the fade. Linear is a constant rate, Ease In lingers bright then snaps dim, Ease Out snaps dim then lingers, Ease In-Out is smooth at both ends. Shared by the source ammo and magazine flash.</text>
+    </string>
+    <string id="magazines_spinner_flash_easing_lst_linear">
+        <text>Linear</text>
+    </string>
+    <string id="magazines_spinner_flash_easing_lst_ease_in">
+        <text>Ease In</text>
+    </string>
+    <string id="magazines_spinner_flash_easing_lst_ease_out">
+        <text>Ease Out</text>
+    </string>
+    <string id="magazines_spinner_flash_easing_lst_ease_in_out">
+        <text>Ease In-Out (Smooth)</text>
     </string>
 
     <!-- Scale mode list values -->
