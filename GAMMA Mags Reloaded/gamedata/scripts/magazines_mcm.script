@@ -88,8 +88,8 @@ function on_mcm_load()
             {id= "mag_tooltip" ,type= "list", val= 2  ,def= 1 ,content= {{0,"topround"},  {1,"trcap"}, {2,"full"}}	},
             {id = "empty_mags_stack", type = "check", val = 1, def=true},
             {id = "sort_inv", type = "check", val = 1, def=true},
-            {id= "highlight_color" ,type= "list"     ,val= 0  ,def= "orange" ,content= {{"brown","ram_brown"},{"white","ram_white"}, {"blond","ram_blond"} ,   {"blue","ram_blue"}, {"orange","ram_orange"} , {"pink","ram_pink"} }	},
-            {id= "highlight_clr_a" ,type= "track"    ,val= 2	,min= 0   ,max= 255    ,step= 1		,def= 100   },	
+            {id= "highlight_color", type="list", val=0, def="orange", content={{"none", "ram_none"}, {"brown", "ram_brown"}, {"white", "ram_white"}, {"blond", "ram_blond"}, {"blue", "ram_blue"}, {"orange", "ram_orange"}, {"pink","ram_pink"}}},
+            {id= "highlight_clr_a", type="track", val=2, min=0, max=255, step=1, def=100},	
         }},
         {id = "hud",sh=true,gr={
             {id= "hudtitle",type= "slide",text="ui_mcm_magazines_hudtitle",link= "ui_options_slider_player",size= {512,50},spacing= 20},
@@ -127,7 +127,12 @@ end
 
 local function on_option_change()
     if ui_mcm then
-        magazine_binder.ready_color = rax_persistent_highlight.change_alpha(colors[ui_mcm.get("magazines/mgmt/highlight_color")] or colors.orange , ui_mcm.get("magazines/mgmt/highlight_clr_a") or 100 )
+        local selection = ui_mcm.get("magazines/mgmt/highlight_color")
+        if selection == "none" then
+            magazine_binder.ready_color = nil
+        else
+            magazine_binder.ready_color = rax_persistent_highlight.change_alpha(colors[selection] or colors.orange , ui_mcm.get("magazines/mgmt/highlight_clr_a") or 100 )
+        end
         empty_table(magazines.cache_mag_time)
     end
 end
