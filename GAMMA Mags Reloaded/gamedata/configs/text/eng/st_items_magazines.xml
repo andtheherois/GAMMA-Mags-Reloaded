@@ -108,6 +108,9 @@
 		<text>How much of the UI background is visible through the highlight. Lower values make the highlight more subtle.</text>
 	</string>
 
+	<string id="ui_mcm_lst_ram_none">
+		<text>None (icon only)</text>
+	</string>
 	<string id="ui_mcm_lst_ram_orange">
 		<text>Orange</text>
 	</string>

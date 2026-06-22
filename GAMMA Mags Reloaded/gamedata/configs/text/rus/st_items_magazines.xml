@@ -93,6 +93,9 @@
 		<text>Как много фона UI будет видно через подсветку. Низкие значения делают подсветку слабее.</text>
 	</string>
 	
+	<string id="ui_mcm_lst_ram_none">
+		<text>Нет (только значок)</text>
+	</string>
 	<string id="ui_mcm_lst_ram_orange">
 		<text>Оранжевый</text>
 	</string>
