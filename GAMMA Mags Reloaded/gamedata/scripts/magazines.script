@@ -1023,6 +1023,44 @@ function func_unload_ammo(obj)
 
 end
 
+-- Public: start a load of `magazine` from a specific ammo object
+-- Mirrors the ammo->mag branch of on_item_drag_dropped but with
+-- a caller-chosen box (used by the hover load hotkey)
+--
+-- Respects the load_behavior setting
+-- Returns true if a load was started
+function begin_mag_load(magazine, ammo_obj)
+	if action_in_progress() then return false end
+	if not (magazine and ammo_obj and is_magazine(magazine)) then return false end
+
+	-- compatibility: the ammo must be a round this mag accepts
+	local ammos = invert_table(get_magazine_caliber(magazine))
+	if ammos[ammo_obj:section()] == nil then return false end
+
+	local id = magazine:id()
+	local mag_sec = magazine:section()
+	local capacity = SYS_GetParam(2, mag_sec, "max_mag_size") or 20
+
+	local mag_data = get_mag_data(id) or magazine_binder.create_mag_data(id, mag_sec)
+	if #mag_data.loaded >= capacity then return false end
+
+	local behavior = get_config("load_behavior")
+	if behavior == 1 then
+		fast_load_magazine(magazine, ammo_obj)
+	elseif behavior == 2 then
+		fast_load_magazine(magazine, ammo_obj, true)
+	else
+		local delay = get_mag_time(mag_sec, false)
+		ext_ammo_box = ammo_obj          -- object ref; container items have no id lookup
+		ext_ammo_section = ammo_obj:section()
+		action_start_magload()
+		if mag_load_spinner then mag_load_spinner.begin(id) end
+		RemoveTimeEvent("Mag_redux", "load_mag"..id)
+		create_time_event("Mag_redux", "load_mag"..id, 0.1, load_magazine, magazine, capacity, delay * 1000)
+	end
+	return true
+end
+
 function loadout_precondition(obj)
 	if is_magazine(obj) then
 		local id = obj:id()

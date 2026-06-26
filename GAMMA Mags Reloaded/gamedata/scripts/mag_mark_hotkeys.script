@@ -1,0 +1,128 @@
+--[[
+    Inventory auto-load hotkeys for magazines by Priler (https://github.com/Priler)
+    Based on BWais's Magazine UI Overhaul hotkeys.
+
+    ::: Bidirectional compatibility with Bwais's Magazine UI Overhaul :::
+    When that mod is installed it owns those actions instead, so this handler stands down to avoid double-triggering.
+    The magazine marking system and the mark icon overlay are independent and stay on.
+    That mod respects our mag mark feature, as well.
+--]]
+
+local is_magazine         = magazine_binder.is_magazine
+local is_supported_weapon = magazine_binder.is_supported_weapon
+
+local function cfg(key)
+    if magazines_mcm and magazines_mcm.get_config then
+        return magazines_mcm.get_config(key)
+    end
+    return nil
+end
+
+-- managing your own gear only
+local actor_bags = {
+    actor_bag   = true,
+    actor_equ   = true,
+    actor_belt  = true,
+    actor_quick = true,
+}
+
+local function is_inventory_mode()
+    if not (ui_inventory and ui_inventory.GUI) then return false end
+    local mode = ui_inventory.GUI.mode
+    return mode == "inventory" or mode == "loot"
+end
+
+-- self is the UIInventory (ui_inventory.GUI)
+local function get_hover(self)
+    if not (self.hover and self.CC) then return nil, nil end
+    local bag = self.hover.bag
+    local idx = self.hover.idx
+    if not (bag and idx and self.CC[bag]) then return nil, nil end
+    return self.CC[bag]:GetObj(idx), bag
+end
+
+local function busy()
+    return magazines and magazines.action_in_progress and magazines.action_in_progress()
+end
+
+-- Bwais's Magazine UI Overhaul defines this module
+-- when present it owns the hover hotkeys, so we defer ours
+local function bwais_hotkeys_present()
+    return simple_load_magazine ~= nil
+end
+
+-- shared weapon branch for unload + loadout keys
+local function unload_or_eject_weapon(obj)
+    if is_supported_weapon(obj) then
+        magazines.eject_magazine(obj)
+    elseif IsWeapon(obj) and not IsItem("fake_ammo_wpn", obj:section()) then
+        if (obj:get_ammo_in_magazine() or 0) > 0 then
+            obj:force_unload_magazine(true)
+        end
+    end
+end
+
+local function do_load(obj, bag)
+    if not actor_bags[bag] then return end
+    if not is_magazine(obj) then return end
+    if busy() then return end
+
+    local mark = mag_marks.get_mark(obj:id())
+    local ammo
+    if mark then
+        ammo = mag_marks.find_best_ammo(obj, mark)
+    elseif cfg("untagged_load") then
+        ammo = mag_marks.find_auto_ammo(obj)    -- no mark: auto-pick by preference
+    end
+    if not ammo then return end                 -- nothing usable on hand
+
+    magazines.begin_mag_load(obj, ammo)
+end
+
+local function do_unload(obj, bag)
+    if not actor_bags[bag] then return end
+
+    if is_magazine(obj) then
+        if busy() then return end
+        magazines.func_unload_ammo(obj)   -- unloading needs no tag
+    else
+        unload_or_eject_weapon(obj)
+    end
+end
+
+local function do_loadout(obj, bag)
+    if not actor_bags[bag] then return end
+
+    if is_magazine(obj) then
+        if magazine_binder.toggle_carried_mag(obj:id()) ~= nil then
+            if magazines.inventory_refresh then magazines.inventory_refresh() end
+        end
+    else
+        unload_or_eject_weapon(obj)
+    end
+end
+
+local base_OnKeyboard = ui_inventory.UIInventory.OnKeyboard
+function ui_inventory.UIInventory:OnKeyboard(dik, keyboard_action)
+    local res = base_OnKeyboard(self, dik, keyboard_action)
+
+    if keyboard_action == ui_events.WINDOW_KEY_PRESSED and is_inventory_mode()
+       and not bwais_hotkeys_present() then
+        local obj, bag = get_hover(self)
+        if obj and bag then
+            local k_load    = cfg("key_load_mag")
+            local k_unload  = cfg("key_unload_mag")
+            local k_loadout = cfg("key_loadout_mag")
+
+            if k_load and dik == k_load then
+                do_load(obj, bag)
+            elseif k_unload and dik == k_unload then
+                do_unload(obj, bag)
+            elseif k_loadout and dik == k_loadout then
+                do_loadout(obj, bag)
+            end
+        end
+    end
+
+    return res
+end

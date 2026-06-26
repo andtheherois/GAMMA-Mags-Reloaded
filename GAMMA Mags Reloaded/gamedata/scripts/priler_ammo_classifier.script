@@ -1,0 +1,204 @@
+--[[
+    Ammo classifier library by Priler
+    t(-_-t) made for A.C.E. mod in the first place.
+
+    Resolves a round section into an ammo tag key (fmj / ap / hp / buck / slug / tracer / fire / sub / enhanced).
+    Shared as a standalone script so any mod can depend on the same classification by calling
+    priler_ammo_classifier.* - keep one copy across mods.
+
+    Public API:
+      classify(round_sec)          -> group key string ("unknown" when unmatched)
+      in_group(round_sec, group)   -> bool, true when classify == group
+      is_sniper_caliber(round_sec) -> bool
+      GROUPS                       -> set of the groups in_group accepts
+--]]
+
+local gc = game.translate_string
+local string_find  = string.find
+local string_match = string.match
+local string_lower = string.lower
+
+-- the groups in_group accepts
+-- everything else still classifies (tracer/fire/...)
+-- but is never reported as a group match
+GROUPS = {
+    fmj  = true,
+    ap   = true,
+    hp   = true,
+    buck = true,
+    slug = true,
+}
+
+local type_cache = {}
+
+-- sections whose name misleads the generic patterns
+-- (9x19 pbp is a JHP +P hollow point, unlike the 9x18 PBP armor-piercing round;
+--  9x39 pab9 is SP-5, a ball round, not a "+"-enhanced one)
+local SECTION_OVERRIDES = {
+    { prefix = "ammo_9x19_pbp",  type = "hp",  tag = "(HP)"  },
+    { prefix = "ammo_9x39_pab9", type = "fmj", tag = "(FMJ)" },
+}
+
+-- classify by raw section name
+local function classify_section(section)
+    if not section then return "unknown", nil end
+
+    local cached = type_cache[section]
+    if cached then return cached.type, cached.tag end
+
+    local s = string_lower(section)
+    local rtype, rtag = "unknown", nil
+
+    for i = 1, #SECTION_OVERRIDES do
+        local ov = SECTION_OVERRIDES[i]
+        if string_find(s, ov.prefix, 1, true) == 1 then
+            type_cache[section] = { type = ov.type, tag = ov.tag }
+            return ov.type, ov.tag
+        end
+    end
+
+    -- AP: ap, pp, pbp, bp, 7h14, 7n, sp10, ss190, dart, barrikada, plus high-pen
+    -- single-variant calibers (12x76 bull, .300 WM, .50 BMG, .338)
+    if string_find(s, "_ap") or string_find(s, "_bp") or string_find(s, "_pbp")
+       or string_find(s, "_pp") or string_find(s, "7h14") or string_find(s, "7n")
+       or string_find(s, "sp10") or string_find(s, "ss190") or string_find(s, "_dart")
+       or string_find(s, "barrikada") or string_find(s, "_bull")
+       or string_find(s, "magnum_300") or string_find(s, "50_bmg")
+       or string_find(s, "338") then
+        rtype, rtag = "ap", "(AP)"
+
+    -- HP: hp, jhp, hydro, soft point
+    elseif string_find(s, "_hp") or string_find(s, "jhp") or string_find(s, "hydro")
+       or string_find(s, "_sp_") then
+        rtype, rtag = "hp", "(HP)"
+
+    elseif string_find(s, "_t_") or string_find(s, "_tracer") then
+        rtype, rtag = "tracer", "(T)"
+
+    elseif string_find(s, "fire") or string_find(s, "_zp") then
+        rtype, rtag = "fire", "(I)"
+
+    elseif string_find(s, "sub") then
+        rtype, rtag = "sub", "(SUB)"
+
+    elseif string_find(s, "_ep") or string_find(s, "_pmm") or string_find(s, "pab9")
+       or string_find(s, "7h1") then
+        rtype, rtag = "enhanced", "(+)"
+
+    -- slug (shotgun): slug, zhekan, shrapnel, eco
+    elseif string_find(s, "slug") or string_find(s, "zhekan") or string_find(s, "shrapnel")
+       or string_find(s, "_eco") then
+        rtype, rtag = "slug", "(SL)"
+
+    -- buckshot: buck, shot (but shrapnel is slug, handled above)
+    elseif string_find(s, "buck") or (string_find(s, "_shot") and not string_find(s, "shrapnel")) then
+        rtype, rtag = "buck", "(BK)"
+
+    -- FMJ/ball/standard: fmj, ball, ps, p, ss195, pkm belt
+    elseif string_find(s, "_fmj") or string_find(s, "_ball") or string_find(s, "_ps")
+       or string_match(s, "_p$") or string_find(s, "ss195") or string_find(s, "pkm") then
+        rtype, rtag = "fmj", "(FMJ)"
+    end
+
+    type_cache[section] = { type = rtype, tag = rtag }
+    return rtype, rtag
+end
+
+-- classify by display (short) name; catches modded ammo the section patterns miss
+local function classify_name(name)
+    if not name or name == "" then return "unknown", nil end
+    local n = string_lower(name)
+
+    if string_match(n, " hp$") or string_match(n, "hp$") or string_find(n, "jhp")
+       or string_find(n, "hydro") or string_find(n, "lrn") then
+        return "hp", "(HP)"
+    end
+    -- standalone "ap" token anywhere (" ap ", leading, or "(ap)")
+    -- the frontier pattern keeps it from matching inside words like cap/weapon/rapier
+    -- catches names where AP sits mid-string, e.g. "12x76 AP slugs (old)", which the
+    -- end-anchored patterns below miss while the "slugs" substring would otherwise
+    -- mis-tag the round as slug
+    if string_match(n, "%f[%a]ap%f[%A]") or string_match(n, " ap$") or string_match(n, "ap$")
+       or string_match(n, " bp$") or string_match(n, "bp$") or string_match(n, " pbp$")
+       or string_find(n, " pp") or string_find(n, "sp10") or string_find(n, "ss190") then
+        return "ap", "(AP)"
+    end
+    if string_find(n, "7n") then return "ap", "(AP)" end
+    if string_find(n, "tracer") or string_match(n, " t$") then return "tracer", "(T)" end
+    if string_find(n, "fire") or string_find(n, "incend") or string_find(n, " zp") then
+        return "fire", "(I)"
+    end
+    if string_find(n, "sub") then return "sub", "(SUB)" end
+    if string_match(n, " ep$") or string_find(n, "pmm") or string_find(n, "match") then
+        return "enhanced", "(+)"
+    end
+    if string_find(n, "slug") or string_find(n, "zhekan") or string_find(n, "shrapnel")
+       or string_find(n, "eco") then
+        return "slug", "(SL)"
+    end
+    if string_find(n, "buck") or string_find(n, "shot") then return "buck", "(BK)" end
+    if string_find(n, "fmj") or string_find(n, "ball") or string_match(n, " ps$")
+       or string_match(n, " p$") or (string_find(n, "pst") and not string_find(n, "pstm")) then
+        return "fmj", "(FMJ)"
+    end
+    return "unknown", nil
+end
+
+-- ArtiGrok Ballistics marks enhanced variants with a trailing "<TYPE>+" on the
+-- short name (".45 HP+", ".300 AP+")
+-- Vanilla / other ammo afaik never ends with '+', so this is a no-op when that mod is absent
+local ENHANCED_TAG_TYPE = {
+    hp = "hp", ap = "ap", fmj = "fmj", slug = "slug", buck = "buck",
+    sub = "sub", t = "tracer", i = "fire",
+}
+local function parse_enhanced(short_name)
+    if not short_name or short_name == "" then return nil end
+    local base = string_match(short_name, "(%a+)%+%s*$")
+    if not base then return nil end
+    return ENHANCED_TAG_TYPE[string_lower(base)] or "enhanced"
+end
+
+local function short_name_of(round_sec)
+    if not (ui_item and ui_item.get_sec_short_name) then return nil end
+    local ok, n = pcall(function() return gc(ui_item.get_sec_short_name(round_sec)) end)
+    if ok and n and n ~= "" then return n end
+    return nil
+end
+
+-- Public: resolve a round section to its group key
+-- Order matches Ammo Check: enhanced "+" naming, then short name, then section
+function classify(round_sec)
+    if not round_sec then return "unknown" end
+
+    local name = short_name_of(round_sec)
+
+    local enh = parse_enhanced(name)
+    if enh then return enh end
+
+    if name then
+        local t = classify_name(name)
+        if t and t ~= "unknown" then return t end
+    end
+
+    local t = classify_section(round_sec)
+    return t or "unknown"
+end
+
+-- Public: does this round belong to a given group (fmj/ap/hp/buck/slug)?
+function in_group(round_sec, group)
+    if not (group and GROUPS[group]) then return false end
+    return classify(round_sec) == group
+end
+
+-- Sniper / anti-materiel / marksman calibers, matched by the same substring
+-- approach as the type classifier above
+-- 7.62x54 is included for SVD and Mosin (note it is shared with the PKM, so PKM box mags also count as "sniper" here :3)
+local SNIPER_PATTERNS = { "magnum_300", "338", "50_bmg", "12_7x55", "7_62x54" }
+function is_sniper_caliber(round_sec)
+    if not round_sec then return false end
+    local s = string_lower(round_sec)
+    for i = 1, #SNIPER_PATTERNS do
+        if string_find(s, SNIPER_PATTERNS[i], 1, true) then return true end
+    end
+    return false
+end
