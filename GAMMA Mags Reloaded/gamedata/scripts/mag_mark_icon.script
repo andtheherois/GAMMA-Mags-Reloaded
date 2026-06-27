@@ -102,6 +102,9 @@ local function mark_layer_for(self, obj, sec)
     if mode == 0 then return nil end
     if not (obj and sec and is_magazine(sec)) then return nil end
 
+    -- marks are keyed by object id, so there is nothing to draw
+    if self.showcase ~= 0 or type(obj) ~= "userdata" then return nil end
+
     local mark = mag_marks and mag_marks.get_mark(obj:id())
     if not mark then return nil end
 

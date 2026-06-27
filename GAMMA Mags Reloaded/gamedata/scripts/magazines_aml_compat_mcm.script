@@ -1,0 +1,71 @@
+--[[
+    Animated Magazine Loading - driver module
+    Compatibility layer for Mags Reloaded by Priler (https://github.com/Priler)
+
+    Detects the AML driver module (magazines_aml) and when present and enabled in
+    MCM, registers it as the load driver on magazines.script.
+    With it active, mag loading and unloading play AML hand animations instead of our cell overlay.
+    The round data, holster and cancel logic stay owned by magazines.script.
+
+    AML is optional.
+    With the mod absent, or the MCM toggle off, or a contract mismatch,
+    nothing is registered and loading runs exactly as before.
+--]]
+
+local MCM_PAGE  = "magazines_compat"
+local MCM_GROUP = "main"
+local DEFAULTS  = { aml_enable = true }
+
+local function cfg(key)
+    if ui_mcm then return ui_mcm.get(MCM_PAGE .. "/" .. MCM_GROUP .. "/" .. key) end
+    return DEFAULTS[key]
+end
+
+-- AML ships magazines_aml.script, the module table is our presence flag
+local function aml_present()
+    return magazines_aml ~= nil and magazines_aml.get_driver ~= nil
+end
+
+-- only wire it up if the AML build targets the same host seam revision
+local function aml_compatible()
+    return aml_present()
+        and magazines and magazines.SEAM_CONTRACT
+        and magazines_aml.CONTRACT == magazines.SEAM_CONTRACT
+end
+
+local warned = false
+local function apply()
+    if not magazines or not magazines.register_load_driver then return end
+
+    if aml_compatible() and cfg("aml_enable") then
+        magazines.register_load_driver(magazines_aml.get_driver())
+    else
+        magazines.clear_load_driver()
+        if aml_present() and not aml_compatible() and not warned then
+            warned = true
+            printf("RAX: AML present (contract %s) but host seam is %s - animated loading disabled",
+                tostring(magazines_aml.CONTRACT), tostring(magazines and magazines.SEAM_CONTRACT))
+        end
+    end
+end
+
+function on_mcm_load()
+    -- no AML installed: do not show a compatibility page at all
+    if not aml_present() then return nil end
+    return { id = MCM_PAGE, gr = {
+        { id = MCM_GROUP, sh = true, gr = {
+            { id = "title", type = "slide", link = "ui_options_slider_player",
+              text = "ui_mcm_magazines_compat_title", size = {512, 50}, spacing = 20 },
+            { id = "aml_desc", type = "desc", text = "ui_mcm_magazines_compat_aml_desc",
+              clr = {255, 200, 200, 200} },
+            -- hint pins the label string id to ui_mcm_magazines_compat_aml_enable
+            { id = "aml_enable", type = "check", val = 1, def = true,
+              hint = "magazines_compat_aml_enable" },
+        }},
+    }}
+end
+
+function on_game_start()
+    RegisterScriptCallback("actor_on_first_update", apply)
+    RegisterScriptCallback("on_option_change", apply)
+end
