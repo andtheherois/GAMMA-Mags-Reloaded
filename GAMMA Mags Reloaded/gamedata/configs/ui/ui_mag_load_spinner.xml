@@ -1,0 +1,25 @@
+<w>
+    <!-- Cell loading spinner for a magazine being topped up / unloaded.
+         Texture (atlas) and frame rect are set dynamically in code per style -->
+    <mag_spinner x="0" y="0" width="24" height="24" stretch="1">
+        <texture>ui\load_spinners\default\spinner_atlas</texture>
+    </mag_spinner>
+
+    <!-- Outer fill gauge for the same magazine. Texture (atlas) and frame rect
+         are set dynamically in code; the frame tracks the mag load percent -->
+    <mag_gauge x="0" y="0" width="36" height="36" stretch="1">
+        <texture>ui\load_gauges\fill_ring\gauge_atlas</texture>
+    </mag_gauge>
+
+    <!-- Cancel "X" shown in the cell centre while the mouse hovers a loading
+         magazine -->
+    <mag_cross x="0" y="0" width="16" height="16" stretch="1">
+        <texture>ui\load_cross\cross</texture>
+    </mag_cross>
+
+    <!-- Round count "X / Y" under the field HUD gauge while a magazine loads
+         with the inventory closed -->
+    <mag_load_text x="0" y="0" width="220" height="26" stretch="1">
+        <text align="c" complex_mode="0" font="letterica18" r="255" g="220" b="120" a="255"></text>
+    </mag_load_text>
+</w>

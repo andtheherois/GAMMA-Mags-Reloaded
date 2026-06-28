@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="windows-1251"?>
+<string_table>
+
+	<!-- right-click menu + mark choices -->
+	<string id="st_mag_mark_menu">
+		<text>Mark magazine</text>
+	</string>
+	<string id="st_mag_mark_fmj">
+		<text>Mark as FMJ</text>
+	</string>
+	<string id="st_mag_mark_ap">
+		<text>Mark as AP</text>
+	</string>
+	<string id="st_mag_mark_hp">
+		<text>Mark as HP</text>
+	</string>
+	<string id="st_mag_mark_buck">
+		<text>Mark as Buck</text>
+	</string>
+	<string id="st_mag_mark_slug">
+		<text>Mark as Slug</text>
+	</string>
+	<string id="st_mag_mark_remove">
+		<text>Remove magazine mark</text>
+	</string>
+
+	<string id="ui_mcm_lst_none">
+		<text>None</text>
+	</string>
+
+	<!-- tooltip line under "Magazine size" -->
+	<string id="st_mag_marked_as">
+		<text>Marked as</text>
+	</string>
+
+	<!-- MCM: per-mark highlight colors (Auto-Load/Mag-Mark page) -->
+	<string id="ui_mcm_magazines_hotkeys_mark_color_fmj">
+		<text>Mark Color: FMJ</text>
+	</string>
+	<string id="ui_mcm_magazines_hotkeys_mark_color_fmj_desc">
+		<text>Highlight color for magazines marked as FMJ.</text>
+	</string>
+	<string id="ui_mcm_magazines_hotkeys_mark_color_ap">
+		<text>Mark Color: AP</text>
+	</string>
+	<string id="ui_mcm_magazines_hotkeys_mark_color_ap_desc">
+		<text>Highlight color for magazines marked as AP.</text>
+	</string>
+	<string id="ui_mcm_magazines_hotkeys_mark_color_hp">
+		<text>Mark Color: HP</text>
+	</string>
+	<string id="ui_mcm_magazines_hotkeys_mark_color_hp_desc">
+		<text>Highlight color for magazines marked as HP.</text>
+	</string>
+	<string id="ui_mcm_magazines_hotkeys_mark_color_buck">
+		<text>Mark Color: Buck</text>
+	</string>
+	<string id="ui_mcm_magazines_hotkeys_mark_color_buck_desc">
+		<text>Highlight color for shotgun magazines marked as Buckshot.</text>
+	</string>
+	<string id="ui_mcm_magazines_hotkeys_mark_color_slug">
+		<text>Mark Color: Slug</text>
+	</string>
+	<string id="ui_mcm_magazines_hotkeys_mark_color_slug_desc">
+		<text>Highlight color for shotgun magazines marked as Slug.</text>
+	</string>
+
+	<!-- MCM: mark icon overlay -->
+	<string id="ui_mcm_magazines_hotkeys_mark_icon_mode">
+		<text>Mark Icon Overlay</text>
+	</string>
+	<string id="ui_mcm_magazines_hotkeys_mark_icon_mode_desc">
+		<text>Show a small ammo-group glyph in the upper-right corner of marked magazines.</text>
+	</string>
+	<string id="ui_mcm_lst_mark_off">
+		<text>Disabled</text>
+	</string>
+	<string id="ui_mcm_lst_mark_colored">
+		<text>Enabled (colored)</text>
+	</string>
+	<string id="ui_mcm_lst_mark_gray">
+		<text>Enabled (grayed out)</text>
+	</string>
+
+	<!-- MCM: untagged-mag auto-load -->
+	<string id="ui_mcm_magazines_hotkeys_untagged_load">
+		<text>Auto-Load Untagged Mags</text>
+	</string>
+	<string id="ui_mcm_magazines_hotkeys_untagged_load_desc">
+		<text>When you press the load hotkey on a magazine with no mark, automatically pick compatible ammo from your inventory using the preferences below.</text>
+	</string>
+	<string id="ui_mcm_magazines_hotkeys_untagged_pref_general">
+		<text>Untagged Pick: Other mags</text>
+	</string>
+	<string id="ui_mcm_magazines_hotkeys_untagged_pref_general_desc">
+		<text>Preferred ammo group for untagged non-shotgun mags. "Most plentiful" loads whatever compatible round you carry the most of. A partially loaded mag always tops up with the group already inside it.</text>
+	</string>
+	<string id="ui_mcm_magazines_hotkeys_untagged_pref_shotgun">
+		<text>Untagged Pick: Shotgun</text>
+	</string>
+	<string id="ui_mcm_magazines_hotkeys_untagged_pref_shotgun_desc">
+		<text>Preferred ammo group for untagged shotgun mags. "Most plentiful" loads whatever compatible shell you carry the most of. A partially loaded mag always tops up with the group already inside it.</text>
+	</string>
+	<string id="ui_mcm_magazines_hotkeys_untagged_pref_sniper">
+		<text>Untagged Pick: Sniper</text>
+	</string>
+	<string id="ui_mcm_magazines_hotkeys_untagged_pref_sniper_desc">
+		<text>Preferred ammo group for untagged sniper mags (long-range calibers: 7.62x54R, .300 WM, .338, .50 BMG, 12.7x55). "Most plentiful" loads whatever compatible round you carry the most of. A partially loaded mag always tops up with the group already inside it.</text>
+	</string>
+	<string id="ui_mcm_lst_untag_most">
+		<text>Most plentiful</text>
+	</string>
+	<string id="ui_mcm_lst_untag_fmj">
+		<text>FMJ</text>
+	</string>
+	<string id="ui_mcm_lst_untag_ap">
+		<text>AP</text>
+	</string>
+	<string id="ui_mcm_lst_untag_hp">
+		<text>HP</text>
+	</string>
+	<string id="ui_mcm_lst_untag_buck">
+		<text>Buck</text>
+	</string>
+	<string id="ui_mcm_lst_untag_slug">
+		<text>Slug</text>
+	</string>
+
+	<!-- MCM: combined Auto-Load / Mag-Mark page (subcategory tab + section titles) -->
+	<string id="ui_mcm_menu_hotkeys">
+		<text>Auto-Load/Mag-Mark</text>
+	</string>
+	<string id="ui_mcm_magazines_autoloadtitle">
+		<text>Auto-Load</text>
+	</string>
+	<string id="ui_mcm_magazines_marktitle">
+		<text>Magazine Marks</text>
+	</string>
+	<string id="ui_mcm_magazines_hkttitle">
+		<text>Inventory Hover Hotkeys</text>
+	</string>
+	<string id="ui_mcm_magazines_hotkeys_key_load_mag">
+		<text>Load Hovered Magazine</text>
+	</string>
+	<string id="ui_mcm_magazines_hotkeys_key_load_mag_desc">
+		<text>While the inventory is open, load the magazine under the cursor with the most plentiful ammo of its marked group. An unmarked magazine auto-picks compatible ammo using the Auto-Load settings above.</text>
+	</string>
+	<string id="ui_mcm_magazines_hotkeys_key_unload_mag">
+		<text>Unload Hovered Magazine / Weapon</text>
+	</string>
+	<string id="ui_mcm_magazines_hotkeys_key_unload_mag_desc">
+		<text>Unload the marked magazine under the cursor, or unload/eject the weapon under the cursor. Works on unmarked magazines too.</text>
+	</string>
+	<string id="ui_mcm_magazines_hotkeys_key_loadout_mag">
+		<text>Toggle Loadout / Eject Weapon</text>
+	</string>
+	<string id="ui_mcm_magazines_hotkeys_key_loadout_mag_desc">
+		<text>Add or remove the magazine under the cursor from your loadout, or eject/unload the weapon under the cursor.</text>
+	</string>
+
+</string_table>

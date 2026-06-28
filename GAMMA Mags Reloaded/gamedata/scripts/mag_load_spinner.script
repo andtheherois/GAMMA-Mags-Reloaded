@@ -1,0 +1,993 @@
+--[[
+    Magazine Loading Spinner/Gauge by Priler (https://github.com/Priler)
+    Ported from my other mod: Looting takes time REDUX
+    t(-_-t)
+
+    Shows an animated spinner over a magazine cell while it is being topped up
+    or unloaded round by round, and optionally dims the magazine icon.
+    Also comes with mag fill gauge that fills upon mag filling.
+    Everything can be turned on/off or customized through MCM.
+
+    Driven by magazines.script: begin(id) on load/unload start, cleared on interrupt.
+--]]
+
+-- [mag_id] = true while that magazine is actively loading/unloading
+local active = {}
+
+-- [mag_id] = 0..1 hover-cancel fade (0 = idle/white, 1 = hovered/red + X shown)
+local hover_fade = {}
+
+-- [mag_id] = true while that magazine is unloading
+local unloading = {}
+local UNLOAD_SPEED_MULT = 3 -- unload spinner spins faster
+
+-- known spinner style folders under textures\ui\load_spinners
+local known_styles = {
+    ["default"] = true, ["arrows"] = true, ["chasing_arrows"] = true,
+    ["fading_line"] = true, ["tarkov_like"] = true,
+    ["growing_ring"] = true, ["half_circle"] = true,
+    ["half_circle_colored"] = true, ["half_circle_dimmed"] = true,
+    ["half_circle_green"] = true, ["line"] = true, ["recycle"] = true,
+    ["spinning_segments"] = true,
+    ["two_arrows"] = true, ["wheel"] = true,
+}
+
+-- each style ships one packed atlas (spinner_atlas.dds)
+local atlas_meta = {
+    ["arrows"] = { fps = 26, frames = 13, cols = 4, rows = 4, tile = 128 },
+    ["chasing_arrows"] = { fps = 26, frames = 13, cols = 4, rows = 4, tile = 128 },
+    ["default"] = { fps = 26, frames = 13, cols = 4, rows = 4, tile = 128 },
+    ["fading_line"] = { fps = 26, frames = 13, cols = 4, rows = 4, tile = 128 },
+    ["tarkov_like"] = { fps = 26, frames = 13, cols = 4, rows = 4, tile = 128 },
+    ["growing_ring"] = { fps = 26, frames = 13, cols = 4, rows = 4, tile = 128 },
+    ["half_circle"] = { fps = 26, frames = 13, cols = 4, rows = 4, tile = 128 },
+    ["half_circle_colored"] = { fps = 26, frames = 13, cols = 4, rows = 4, tile = 128 },
+    ["half_circle_dimmed"] = { fps = 26, frames = 13, cols = 4, rows = 4, tile = 128 },
+    ["half_circle_green"] = { fps = 26, frames = 13, cols = 4, rows = 4, tile = 128 },
+    ["line"] = { fps = 26, frames = 13, cols = 4, rows = 4, tile = 128 },
+    ["recycle"] = { fps = 26, frames = 13, cols = 4, rows = 4, tile = 128 },
+    ["spinning_segments"] = { fps = 26, frames = 13, cols = 4, rows = 4, tile = 128 },
+    ["two_arrows"] = { fps = 26, frames = 13, cols = 4, rows = 4, tile = 128 },
+    ["wheel"] = { fps = 26, frames = 13, cols = 4, rows = 4, tile = 128 },
+}
+
+local DEFAULT_STYLE = "half_circle_colored"
+
+-- fill gauge: a static outer ring.
+-- The frame is picked from the magazine's load percent, so the ring fills as rounds go in
+local GAUGE_STYLE = "fill_ring"
+local gauge_meta = { frames = 64, cols = 8, rows = 8, tile = 128 }
+
+local function cfg(key)
+    if not magazines_mcm then return nil end
+    return magazines_mcm.get_config(key)
+end
+
+-- STALKER UI is authored for 4:3, widescreen stretches width
+-- Cached once per session.
+local cached_aspect = nil
+local function aspect_correction()
+    if not cached_aspect then
+        local w, h = device().width, device().height
+        cached_aspect = (h / w) * (4 / 3)
+    end
+    return cached_aspect
+end
+
+local spinner_xml = nil
+local function get_xml()
+    if not spinner_xml then
+        spinner_xml = CScriptXmlInit()
+        spinner_xml:ParseFile("ui_mag_load_spinner.xml")
+    end
+    return spinner_xml
+end
+
+-- selected style name, validated against the known set
+local function resolve_style()
+    local style = cfg("spinner_style") or DEFAULT_STYLE
+    if not known_styles[style] then style = DEFAULT_STYLE end
+    return style
+end
+
+local function style_meta(style)
+    return atlas_meta[style] or atlas_meta[DEFAULT_STYLE]
+end
+
+-- current frame index, advanced by wall-clock so every spinner stays in sync
+local function atlas_frame(meta, mult)
+    local speed = (tonumber(cfg("spinner_speed")) or 1) * (mult or 1)
+    if speed <= 0 then speed = 1 end
+    local per = 1000 / ((meta.fps or 26) * speed)
+    return math.floor(time_global() / per) % (meta.frames or 1)
+end
+
+-- point a static at tile f of its atlas
+local function set_frame(static, meta, f)
+    local col = f % meta.cols
+    local row = math.floor(f / meta.cols)
+    local x = col * meta.tile
+    local y = row * meta.tile
+    static:SetTextureRect(Frect():set(x, y, x + meta.tile, y + meta.tile))
+end
+
+-- Build the spinner element as a child of a cell's icon.
+local function make_spinner(ico)
+    if not ico then return end
+    local xml = get_xml()
+    if not xml then return end
+
+    local spinner = xml:InitStatic("mag_spinner", ico)
+    if not spinner then return end
+
+    local style = resolve_style()
+    local meta = style_meta(style)
+    spinner:InitTexture("ui\\load_spinners\\" .. style .. "\\spinner_atlas")
+    set_frame(spinner, meta, atlas_frame(meta))
+
+    local ico_w = ico:GetWidth()
+    local ico_h = ico:GetHeight()
+
+    local max_size = tonumber(cfg("spinner_size")) or 24
+    local sz
+    if tonumber(cfg("spinner_scale")) == 2 then
+        sz = math.min(ico_w, ico_h) * 0.5
+        sz = math.max(sz, 16)
+        sz = math.min(sz, max_size)
+    else
+        -- clamp to the cell icon
+        sz = math.min(max_size, math.min(ico_w, ico_h))
+    end
+
+    local corrected_w = sz * aspect_correction()
+    spinner:SetWndSize(vector2():set(corrected_w, sz))
+    spinner:SetWndPos(vector2():set((ico_w - corrected_w) / 2, (ico_h - sz) / 2))
+    spinner:SetStretchTexture(true)
+
+    local opacity = tonumber(cfg("spinner_opacity")) or 90
+    local alpha = math.floor(opacity * 255 / 100)
+    spinner:SetTextureColor(GetARGB(alpha, 255, 255, 255))
+    spinner:Show(true)
+    return spinner
+end
+
+local function gauge_on()
+    return cfg("gauge_enable") ~= false
+end
+
+-- hover a loading mag to reveal a cancel "X" and turn the overlays red
+-- click cancels nmag load
+local function cancel_on()
+    return cfg("cancel_click_enable") ~= false
+end
+
+local function spinner_alpha()
+    local opacity = tonumber(cfg("spinner_opacity")) or 90
+    return math.floor(opacity * 255 / 100)
+end
+
+local function gauge_alpha()
+    local opacity = tonumber(cfg("gauge_opacity")) or 90
+    return math.floor(opacity * 255 / 100)
+end
+
+-- magazine fill fraction 0..1, or nil if it cannot be read
+local function mag_fill(id)
+    if not (magazines and magazines.get_mag_data) then return nil end
+    local md = magazines.get_mag_data(id)
+    if not (md and md.loaded and md.section) then return nil end
+    local cap = SYS_GetParam(2, md.section, "max_mag_size")
+    if not cap or cap <= 0 then return nil end
+    local pct = #md.loaded / cap
+    return (pct < 0 and 0) or (pct > 1 and 1) or pct
+end
+
+-- atlas frame index for a fill fraction
+local function gauge_frame(pct)
+    return math.floor(pct * (gauge_meta.frames - 1) + 0.5)
+end
+
+-- build the fill gauge as an outer-ring child of a cell's icon
+local function make_gauge(ico)
+    if not ico then return end
+    local xml = get_xml()
+    if not xml then return end
+
+    local g = xml:InitStatic("mag_gauge", ico)
+    if not g then return end
+
+    g:InitTexture("ui\\load_gauges\\" .. GAUGE_STYLE .. "\\gauge_atlas")
+    set_frame(g, gauge_meta, 0)
+
+    local ico_w = ico:GetWidth()
+    local ico_h = ico:GetHeight()
+
+    -- match the spinner's effective size, then add the gap on each side so the gauge sits outside it
+    local spin = tonumber(cfg("spinner_size")) or 24
+    if tonumber(cfg("spinner_scale")) == 2 then
+        local fit = math.min(ico_w, ico_h) * 0.5
+        spin = math.max(16, math.min(fit, spin))
+    end
+    local gap = tonumber(cfg("gauge_gap")) or 6
+    local sz = math.min(spin + gap * 2, math.min(ico_w, ico_h))
+
+    local cw = sz * aspect_correction()
+    g:SetWndSize(vector2():set(cw, sz))
+    g:SetWndPos(vector2():set((ico_w - cw) / 2, (ico_h - sz) / 2))
+    g:SetStretchTexture(true)
+
+    local opacity = tonumber(cfg("gauge_opacity")) or 90
+    local alpha = math.floor(opacity * 255 / 100)
+    g:SetTextureColor(GetARGB(alpha, 255, 255, 255))
+    g:Show(true)
+    return g
+end
+
+-- build the cancel "X" as a centred child of a cell's icon, hidden until hovered
+local function make_cross(ico)
+    if not ico then return end
+    local xml = get_xml()
+    if not xml then return end
+
+    local cr = xml:InitStatic("mag_cross", ico)
+    if not cr then return end
+    cr:InitTexture("ui\\load_cross\\cross")
+
+    local ico_w = ico:GetWidth()
+    local ico_h = ico:GetHeight()
+
+    local max_size = tonumber(cfg("spinner_size")) or 24
+    local sz
+    if tonumber(cfg("spinner_scale")) == 2 then
+        sz = math.min(ico_w, ico_h) * 0.5
+        sz = math.max(sz, 16)
+        sz = math.min(sz, max_size)
+    else
+        sz = math.min(max_size, math.min(ico_w, ico_h))
+    end
+    sz = sz * 0.62
+
+    local cw = sz * aspect_correction()
+    cr:SetWndSize(vector2():set(cw, sz))
+    cr:SetWndPos(vector2():set((ico_w - cw) / 2, (ico_h - sz) / 2))
+    cr:SetStretchTexture(true)
+    -- baked cream colour: tint white to keep it
+    cr:SetTextureColor(GetARGB(spinner_alpha(), 255, 255, 255))
+    cr:Show(false)
+    return cr
+end
+
+-- hover transition: fade spinner/gauge between white and red, fade the cancel X in/out
+local HOVER_FADE_MS = 300
+local hover_fade_prev_tg = nil
+
+local function smooth(p)
+    if p < 0 then p = 0 elseif p > 1 then p = 1 end
+    return p * p * (3 - 2 * p)
+end
+
+-- move a 0..1 fade toward target by the frame delta
+local function step_hover(cur, target, dt)
+    local d = dt / HOVER_FADE_MS
+    if cur < target then return math.min(target, cur + d) end
+    if cur > target then return math.max(target, cur - d) end
+    return cur
+end
+
+-- paint a cell's overlays for hover fade h (0 white/hidden X, 1 red/full X)
+local function apply_hover_fade(ci, h)
+    local e = smooth(h)
+    local g = math.floor(255 * (1 - e))   -- white to red: drop green/blue
+    if ci.__mag_spinner then ci.__mag_spinner:SetTextureColor(GetARGB(spinner_alpha(), 255, g, g)) end
+    if ci.__mag_gauge then ci.__mag_gauge:SetTextureColor(GetARGB(gauge_alpha(), 255, g, g)) end
+    if ci.__mag_cross then
+        if e <= 0 then
+            ci.__mag_cross:Show(false)
+        else
+            ci.__mag_cross:Show(true)
+            ci.__mag_cross:SetTextureColor(GetARGB(math.floor(spinner_alpha() * e), 255, 255, 255))
+        end
+    end
+end
+
+-- darkened icon channel value (0-255), or nil if dimming is off
+local function dim_channel()
+    if cfg("spinner_dim") == false then return nil end
+    local amount = tonumber(cfg("spinner_dim_amount")) or 25
+    if amount <= 0 then return nil end
+    local v = math.floor(255 * (1 - amount / 100))
+    return math.max(0, math.min(255, v))
+end
+
+-- darkened icon color, or nil if dimming is off
+local function dim_color()
+    local v = dim_channel()
+    if not v then return nil end
+    return GetARGB(255, v, v, v)
+end
+
+local WHITE = GetARGB(255, 255, 255, 255)
+local watched_bags = { actor_bag = true, actor_trade_bag = true }
+
+-- source ammo box flash
+local flash_bags = { "actor_bag", "actor_trade_bag", "npc_bag", "npc_trade_bag" }
+local flash_bag_set = { actor_bag = true, actor_trade_bag = true, npc_bag = true, npc_trade_bag = true }
+
+-- {cc_id, sec} of the box cell we last tinted, so it can be restored to normal
+local flash_prev = nil
+
+-- reset pulse phase on each load so the fade always starts from full opacity
+local flash_start = 0
+
+-- a cell icon sits on top of a near-opaque dark shadow silhouette
+-- (clr_list["shadow"] = GetARGB(200,20,20,20))
+local SHADOW_NORMAL = GetARGB(200, 20, 20, 20)
+
+-- shape applied to the linear fade position p in [0,1]
+local function ease(p, mode)
+    if mode == "linear" then
+        return p
+    elseif mode == "ease_in" then
+        return p * p
+    elseif mode == "ease_out" then
+        return 1 - (1 - p) * (1 - p)
+    end
+    -- ease_in_out (smoothstep)
+    return p * p * (3 - 2 * p)
+end
+
+-- oscillating icon alpha for the fade in/out pulse
+local function flash_alpha()
+    local strength = tonumber(cfg("box_flash_strength")) or 95
+    strength = math.max(0, math.min(100, strength))
+    local speed = tonumber(cfg("box_flash_speed")) or 90
+    local hz = speed / 100
+
+    -- position within one fade cycle, 1 Hz at 100% speed
+    -- need this to fade back :3
+    local phase = ((time_global() - flash_start) * 0.001 * hz) % 1.0
+    local dip = (phase < 0.5) and (phase * 2) or ((1 - phase) * 2)
+
+    -- brightness s: 1 (full) at t=0, dips toward lo, then returns
+    local s = 1 - ease(dip, cfg("flash_easing") or "ease_in_out")
+
+    local lo = math.floor(255 * (1 - strength / 100))
+    return math.floor(lo + (255 - lo) * s)
+end
+
+-- the pulse is identical for every cell in a frame, so compute it once per frame
+local flash_cache_tg = -1
+local flash_cache_val = 255
+local function current_flash_alpha()
+    local tg = time_global()
+    if tg ~= flash_cache_tg then
+        flash_cache_tg = tg
+        flash_cache_val = flash_alpha()
+    end
+    return flash_cache_val
+end
+
+-- paint a cell icon (and its shadow) at a given alpha and grey channel
+local function paint_alpha(ci, a, c)
+    c = c or 255
+    ci.ico:SetTextureColor(GetARGB(a, c, c, c))
+    -- fade the shadow in step so the icon goes translucent, not black
+    if ci.shadow then
+        ci.shadow:SetTextureColor(GetARGB(math.floor(200 * a / 255), 20, 20, 20))
+    end
+end
+
+-- alpha of the most recent pulse paint
+local flash_last = 255
+local function apply_flash(ci, c)
+    flash_last = current_flash_alpha()
+    paint_alpha(ci, flash_last, c)
+end
+
+local function clear_flash(ci)
+    ci.ico:SetTextureColor(WHITE)
+    if ci.shadow then ci.shadow:SetTextureColor(SHADOW_NORMAL) end
+end
+
+local function actor_menu_cc()
+    local m = GetActorMenu()
+    if m and m.CC then return m end
+    return nil
+end
+
+local function restore_flash()
+    if not flash_prev then return end
+    local m = actor_menu_cc()
+    if m then
+        local cc = m.CC[flash_prev.cc_id]
+        local ci = cc and cc:GetCell_SEC(flash_prev.sec)
+        if ci and ci.ico then clear_flash(ci) end
+    end
+    flash_prev = nil
+end
+
+-- magazine cell flash: shares strength and speed with the source ammo flash
+local function mag_flash_on()
+    return cfg("mag_flash_enable") ~= false
+end
+
+-- [cc_id] = { [mag_id] = true } cells we tinted last tick, so they restore cleanly
+local mag_flash_prev = {}
+
+-- a cell that finishes mid-pulse fades back to full instead of snapping momentally
+local mag_release = {}
+local box_release = nil
+local RELEASE_MS = 200
+
+-- fade-back (what a useful comment huh? xD)
+local function fade_back(rec, tg)
+    local t = (tg - rec.start) / RELEASE_MS
+    if t >= 1 then return 255, 255 end
+    local e = ease(t, "ease_out")
+    local from_c = rec.from_c or 255
+    return math.floor(rec.from + (255 - rec.from) * e),
+           math.floor(from_c + (255 - from_c) * e)
+end
+
+local function restore_mag_flash()
+    mag_release = {}
+    if not next(mag_flash_prev) then return end
+    local m = actor_menu_cc()
+    if m then
+        for cc_id, ids in pairs(mag_flash_prev) do
+            local cc = m.CC[cc_id]
+            if cc and cc.cell then
+                for i = 1, #cc.cell do
+                    local ci = cc.cell[i]
+                    if ci and ci.ico and ci.ID and ids[tonumber(ci.ID)] then clear_flash(ci) end
+                end
+            end
+        end
+    end
+    mag_flash_prev = {}
+end
+
+local function mag_flash_step(m)
+    local tg = time_global()
+    local dimc = dim_channel()  -- dim & flash stack
+    local now = {}
+    for cc_id in pairs(watched_bags) do
+        local cc = m.CC[cc_id]
+        if cc and cc.cell then
+            for i = 1, #cc.cell do
+                local ci = cc.cell[i]
+                if ci and ci.ico and ci.ID then
+                    local id = tonumber(ci.ID)
+                    if id and active[id] then
+                        apply_flash(ci, dimc)
+                        mag_release[id] = nil
+                        now[cc_id] = now[cc_id] or {}
+                        now[cc_id][id] = true
+                    end
+                end
+            end
+        end
+    end
+
+    -- mags that stopped loading since last tick: do fade-back from where they left off
+    for cc_id, ids in pairs(mag_flash_prev) do
+        for id in pairs(ids) do
+            if not (now[cc_id] and now[cc_id][id]) and not mag_release[id] then
+                mag_release[id] = { start = tg, from = flash_last, from_c = dimc or 255 }
+            end
+        end
+    end
+    mag_flash_prev = now
+
+    -- paint the in-flight fade-backs, then drop any that have settled at full
+    if next(mag_release) then
+        for cc_id in pairs(watched_bags) do
+            local cc = m.CC[cc_id]
+            if cc and cc.cell then
+                for i = 1, #cc.cell do
+                    local ci = cc.cell[i]
+                    if ci and ci.ico and ci.ID then
+                        local id = tonumber(ci.ID)
+                        if id and mag_release[id] then paint_alpha(ci, fade_back(mag_release[id], tg)) end
+                    end
+                end
+            end
+        end
+        for id, r in pairs(mag_release) do
+            if (tg - r.start) >= RELEASE_MS then mag_release[id] = nil end
+        end
+    end
+end
+
+local function box_flash_step(m)
+    local sec = magazines and magazines.get_loading_box_section and magazines.get_loading_box_section()
+    if not sec then restore_flash() return end
+
+    local ci, cc_id
+    for i = 1, #flash_bags do
+        local cc = m.CC[flash_bags[i]]
+        local cell = cc and cc:GetCell_SEC(sec)
+        if cell and cell.ico then ci, cc_id = cell, flash_bags[i] break end
+    end
+    if not ci then restore_flash() return end
+
+    -- box jumped to another stack or container: clear the old tint first
+    if flash_prev and (flash_prev.sec ~= sec or flash_prev.cc_id ~= cc_id) then
+        restore_flash()
+    end
+    apply_flash(ci)
+    flash_prev = { cc_id = cc_id, sec = sec }
+    box_release = nil
+end
+
+-- the load ended: fade the last-flashed box back to full from where it left off
+local function begin_box_release()
+    if not flash_prev then return end
+    box_release = { cc_id = flash_prev.cc_id, sec = flash_prev.sec, start = time_global(), from = flash_last }
+    flash_prev = nil
+end
+
+local function box_release_step(m)
+    if not box_release then return end
+    local tg = time_global()
+    local cc = m.CC[box_release.cc_id]
+    local ci = cc and cc:GetCell_SEC(box_release.sec)
+    if ci and ci.ico then paint_alpha(ci, fade_back(box_release, tg)) end
+    if (tg - box_release.start) >= RELEASE_MS then box_release = nil end
+end
+
+local function flash_tick(m) -- m is the actor menu
+    -- source ammo box flash
+    if next(active) and cfg("box_flash_enable") ~= false then
+        box_flash_step(m)
+    elseif cfg("box_flash_enable") == false then
+        restore_flash()
+        box_release = nil
+    elseif flash_prev then
+        begin_box_release()
+    end
+    box_release_step(m)
+
+    -- magazine flash
+    if mag_flash_on() and (next(active) or next(mag_release) or next(mag_flash_prev)) then
+        mag_flash_step(m)
+    else
+        restore_mag_flash()
+    end
+end
+
+-- advance the spinner (wall-clock frame) and the gauge (fill-percent frame) of every active cell
+local function spinner_anim_tick(m)
+    if not next(active) then return end
+    local spin_on = cfg("spinner_enable") ~= false
+    local g_on = gauge_on()
+    local cancel = cancel_on()
+    if not spin_on and not g_on and not cancel then return end
+    local meta = style_meta(resolve_style())
+    local f_load = atlas_frame(meta, 1)
+    local f_unload = atlas_frame(meta, UNLOAD_SPEED_MULT)
+    local tg = time_global()
+    local dt = hover_fade_prev_tg and (tg - hover_fade_prev_tg) or 16
+    hover_fade_prev_tg = tg
+    if dt < 0 then dt = 0 elseif dt > 100 then dt = 100 end
+    for cc_id in pairs(watched_bags) do
+        local cc = m.CC[cc_id]
+        if cc and cc.cell then
+            for i = 1, #cc.cell do
+                local ci = cc.cell[i]
+                if ci and ci.ico and ci.ID then
+                    local id = tonumber(ci.ID)
+                    if id and active[id] then
+                        if ci.__mag_spinner then set_frame(ci.__mag_spinner, meta, unloading[id] and f_unload or f_load) end
+                        if ci.__mag_gauge then
+                            local pct = mag_fill(id)
+                            if pct then set_frame(ci.__mag_gauge, gauge_meta, gauge_frame(pct)) end
+                        end
+                        if cancel then
+                            if not ci.__mag_cross then ci.__mag_cross = make_cross(ci.ico) end
+                            local target = ci.ico:IsCursorOverWindow() and 1 or 0
+                            local h = step_hover(hover_fade[id] or 0, target, dt)
+                            hover_fade[id] = h
+                            apply_hover_fade(ci, h)
+                        elseif ci.__mag_cross then
+                            ci.__mag_cross:Show(false)
+                            ci.__mag_cross = nil
+                            hover_fade[id] = nil
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- public API
+function begin(id, is_unload)
+    if not id then return end
+    -- active gates the spinner, gauge, source-box flash, mag flash and the field
+    -- HUD, so keep it populated if any of those is on
+    if cfg("spinner_enable") == false and cfg("box_flash_enable") == false and not mag_flash_on() and not gauge_on() and cfg("field_load_enable") == false and not cancel_on() then return end
+    if not next(active) then flash_start = time_global() end
+    active[id] = true
+    unloading[id] = is_unload and true or nil
+end
+
+function finish(id)
+    if not id or not active[id] then return end
+    active[id] = nil
+    hover_fade[id] = nil
+    unloading[id] = nil
+    if mag_flash_on() then
+        mag_release[id] = { start = time_global(), from = flash_last, from_c = dim_channel() or 255 }
+    end
+    if not next(active) and cfg("box_flash_enable") ~= false then begin_box_release() end
+end
+
+-- Drop the spinner/gauge overlays from every magazine cell right now
+local function clear_cell_overlays()
+    local m = actor_menu_cc()
+    if not m then return end
+    local mflash = mag_flash_on()
+    for cc_id in pairs(watched_bags) do
+        local cc = m.CC[cc_id]
+        if cc and cc.cell then
+            for i = 1, #cc.cell do
+                local ci = cc.cell[i]
+                if ci then
+                    if ci.__mag_spinner then ci.__mag_spinner:Show(false) ci.__mag_spinner = nil end
+                    if ci.__mag_gauge then ci.__mag_gauge:Show(false) ci.__mag_gauge = nil end
+                    if ci.__mag_cross then ci.__mag_cross:Show(false) ci.__mag_cross = nil end
+                    local id = ci.ID and tonumber(ci.ID)
+                    if ci.ico and not (mflash and id and mag_release[id]) then
+                        ci.ico:SetTextureColor(WHITE)
+                    end
+                end
+            end
+            cc.__mag_spin_dirty = false
+        end
+    end
+end
+
+function clear_all()
+    if not next(active) then return end
+    local tg = time_global()
+    if mag_flash_on() then
+        local fromc = dim_channel() or 255
+        for id in pairs(active) do
+            mag_release[id] = { start = tg, from = flash_last, from_c = fromc }
+        end
+    end
+    active = {}
+    hover_fade = {}
+    unloading = {}
+    if cfg("box_flash_enable") ~= false then begin_box_release() end
+    clear_cell_overlays()
+end
+
+-- Reapply the box fade (pulse or fade-back) right after its cells were rebuilt
+local function reapply_box_flash(cc)
+    if not (cc and cc.ID and flash_bag_set[cc.ID]) then return end
+    if cfg("box_flash_enable") == false then return end
+    if next(active) then
+        local sec = magazines and magazines.get_loading_box_section and magazines.get_loading_box_section()
+        if not sec then return end
+        local ci = cc:GetCell_SEC(sec)
+        if ci and ci.ico then apply_flash(ci) end
+    elseif box_release and box_release.cc_id == cc.ID then
+        local ci = cc:GetCell_SEC(box_release.sec)
+        if ci and ci.ico then paint_alpha(ci, fade_back(box_release, time_global())) end
+    end
+end
+
+-- Reapply the magazine fade (pulse or fade-back) right after its cells were rebuilt
+local function reapply_mag_flash(cc)
+    if not (cc and cc.ID and watched_bags[cc.ID]) then return end
+    if not mag_flash_on() then return end
+    if not cc.cell then return end
+    if not (next(active) or next(mag_release)) then return end
+    local tg = time_global()
+    local dimc = dim_channel()
+    for i = 1, #cc.cell do
+        local ci = cc.cell[i]
+        if ci and ci.ico and ci.ID then
+            local id = tonumber(ci.ID)
+            if id and active[id] then
+                apply_flash(ci, dimc)
+            elseif id and mag_release[id] then
+                paint_alpha(ci, fade_back(mag_release[id], tg))
+            end
+        end
+    end
+end
+
+
+-- cell overlay: re-applied every UI update because the inventory
+-- rebuilds cells on each refresh during the load loop
+-- The marker lives on the cell item so it dies with the cell
+local base_Update = utils_ui.UICellContainer.Update
+function utils_ui.UICellContainer:Update(item_info, no_info, hide)
+    -- self.__mag_spin_dirty keeps the pass running for one extra cycle after the
+    -- last mag finishes, so the spinner created on the final load refresh still
+    -- gets hidden once active has already emptied
+    -- gate on the bag and active set first so unrelated containers pay no cfg reads
+    if watched_bags[self.ID] and (next(active) or self.__mag_spin_dirty) then
+      local spin_on = cfg("spinner_enable") ~= false
+      local g_on = gauge_on()
+      local cancel = cancel_on()
+      if spin_on or g_on or cancel then
+        local dim = dim_color()
+        local mflash = mag_flash_on()
+        local still = false
+        for i = 1, #self.cell do
+            local ci = self.cell[i]
+            if ci and ci.ico and ci.ID then
+                local id = tonumber(ci.ID)
+                if id and active[id] then
+                    -- when flash is on, its pulse already bakes the dim grey into the tint
+                    if dim and not mflash then ci.ico:SetTextureColor(dim) end
+                    if spin_on then
+                        if not ci.__mag_spinner then
+                            ci.__mag_spinner = make_spinner(ci.ico)
+                        else
+                            ci.__mag_spinner:Show(true)
+                        end
+                    elseif ci.__mag_spinner then
+                        ci.__mag_spinner:Show(false)
+                        ci.__mag_spinner = nil
+                    end
+                    if g_on then
+                        if not ci.__mag_gauge then
+                            ci.__mag_gauge = make_gauge(ci.ico)
+                        else
+                            ci.__mag_gauge:Show(true)
+                        end
+                        if ci.__mag_gauge then
+                            local pct = mag_fill(id)
+                            if pct then set_frame(ci.__mag_gauge, gauge_meta, gauge_frame(pct)) end
+                        end
+                    elseif ci.__mag_gauge then
+                        ci.__mag_gauge:Show(false)
+                        ci.__mag_gauge = nil
+                    end
+                    still = true
+                elseif ci.__mag_spinner or ci.__mag_gauge or ci.__mag_cross then
+                    -- this cell just stopped loading: drop its overlays and un-tint
+                    if ci.__mag_spinner then
+                        ci.__mag_spinner:Show(false)
+                        ci.__mag_spinner = nil
+                    end
+                    if ci.__mag_gauge then
+                        ci.__mag_gauge:Show(false)
+                        ci.__mag_gauge = nil
+                    end
+                    if ci.__mag_cross then
+                        ci.__mag_cross:Show(false)
+                        ci.__mag_cross = nil
+                    end
+                    hover_fade[id] = nil
+                    unloading[id] = nil
+                    if not (mflash and mag_release[id]) then ci.ico:SetTextureColor(WHITE) end
+                end
+            end
+        end
+        self.__mag_spin_dirty = still
+      end
+    end
+    local result = base_Update(self, item_info, no_info, hide)
+    -- after the rebuild repaints the cell, restore the current fade so the box
+    -- never renders at full opacity on a refresh frame
+    reapply_box_flash(self)
+    reapply_mag_flash(self)
+    return result
+end
+
+-- Left-click a loading magazine cell to cancel the load
+local base_OnKeyboard = utils_ui.UICellContainer.OnKeyboard
+function utils_ui.UICellContainer:OnKeyboard(dik, keyboard_action)
+    if dik == DIK_keys.MOUSE_1 and keyboard_action == ui_events.WINDOW_KEY_PRESSED
+       and cancel_on() and watched_bags[self.ID] and next(active)
+       and self.hover and self.hover.idx then
+        local ci = self.cell[self.hover.idx]
+        local id = ci and ci.ID and tonumber(ci.ID)
+        if id and active[id] then
+            if magazines and magazines.do_interrupt_magload then
+                magazines.do_interrupt_magload()
+            end
+            return true
+        end
+    end
+    return base_OnKeyboard(self, dik, keyboard_action)
+end
+
+-- @NOTE: maybe this not needed, idk
+-- texture warm-up
+-- A texture is uploaded to the GPU on first draw, so the very first spinner
+-- of a session could render blank for a frame. Pre-warm the atlas as a workaround.
+local warm_dlg = nil
+local warm_static = nil
+local warm_gauge = nil
+
+class "mag_spinner_warm" (CUIScriptWnd)
+function mag_spinner_warm:__init() super() end
+function mag_spinner_warm:__finalize() end
+
+local function warm_one(static, texture, meta)
+    if not static then return end
+    static:InitTexture(texture)
+    set_frame(static, meta, 0)
+    static:SetStretchTexture(true)
+    static:SetTextureColor(GetARGB(0, 255, 255, 255))
+    static:Show(true)
+end
+
+local function apply_warm_texture()
+    local style = resolve_style()
+    warm_one(warm_static, "ui\\load_spinners\\" .. style .. "\\spinner_atlas", style_meta(style))
+    warm_one(warm_gauge, "ui\\load_gauges\\" .. GAUGE_STYLE .. "\\gauge_atlas", gauge_meta)
+end
+
+local function init_warm()
+    if warm_dlg then apply_warm_texture() return end
+    local hud = get_hud()
+    if not hud then return end
+    local xml = get_xml()
+    if not xml then return end
+    warm_dlg = mag_spinner_warm()
+    warm_dlg:SetWndRect(Frect():set(0, 0, 2, 2))
+    warm_static = xml:InitStatic("mag_spinner", warm_dlg)
+    warm_static:SetWndPos(vector2():set(0, 0))
+    warm_static:SetWndSize(vector2():set(2, 2))
+    warm_gauge = xml:InitStatic("mag_gauge", warm_dlg)
+    warm_gauge:SetWndPos(vector2():set(0, 0))
+    warm_gauge:SetWndSize(vector2():set(2, 2))
+    apply_warm_texture()
+    hud:AddDialogToRender(warm_dlg)
+end
+
+-- Field HUD: the same spinner + fill gauge + an "X / Y" round count drawn
+-- on the HUD while a magazine loads/unloads with the inventory closed
+class "mag_field_dlg" (CUIScriptWnd)
+function mag_field_dlg:__init() super() end
+function mag_field_dlg:__finalize() end
+
+local field_dlg, field_spin, field_gauge, field_text
+local field_visible = false
+
+local function build_field()
+    if field_dlg then return true end
+    local hud = get_hud()
+    if not hud then return false end
+    local xml = get_xml()
+    if not xml then return false end
+    field_dlg = mag_field_dlg()
+    field_dlg:SetWndRect(Frect():set(0, 0, 1024, 768))
+    -- gauge first so the spinner draws on top of the ring
+    field_gauge = xml:InitStatic("mag_gauge", field_dlg)
+    field_spin  = xml:InitStatic("mag_spinner", field_dlg)
+    field_text  = xml:InitStatic("mag_load_text", field_dlg)
+    field_spin:SetStretchTexture(true)
+    field_gauge:SetStretchTexture(true)
+    hud:AddDialogToRender(field_dlg)
+    field_dlg:Show(false)
+    return true
+end
+
+-- position, size and texture the field elements from the current MCM values
+local function layout_field()
+    if not field_dlg then return end
+    local ac = aspect_correction()
+    local size = tonumber(cfg("field_hud_size")) or 32
+    local cx = 512 + (tonumber(cfg("field_hud_x_offset")) or 0)
+    local cy = 620 + (tonumber(cfg("field_hud_y_offset")) or 0)
+
+    -- the ring sits just outside the spinner
+    local gap = (tonumber(cfg("gauge_gap")) or 6) * (size / 22)
+    local gpx = size + gap * 2
+
+    local sw, sh = size * ac, size
+    field_spin:SetWndSize(vector2():set(sw, sh))
+    field_spin:SetWndPos(vector2():set(cx - sw / 2, cy - sh / 2))
+
+    local gw, gh = gpx * ac, gpx
+    field_gauge:SetWndSize(vector2():set(gw, gh))
+    field_gauge:SetWndPos(vector2():set(cx - gw / 2, cy - gh / 2))
+
+    local tw, th = 220, 26
+    field_text:SetWndSize(vector2():set(tw, th))
+    field_text:SetWndPos(vector2():set(cx - tw / 2, cy + gpx / 2 + 4))
+
+    -- InitTexture resets the active rect, so set the frame after it
+    local style = resolve_style()
+    local meta = style_meta(style)
+    field_spin:InitTexture("ui\\load_spinners\\" .. style .. "\\spinner_atlas")
+    set_frame(field_spin, meta, atlas_frame(meta))
+    field_gauge:InitTexture("ui\\load_gauges\\" .. GAUGE_STYLE .. "\\gauge_atlas")
+    set_frame(field_gauge, gauge_meta, 0)
+
+    local a = math.floor((tonumber(cfg("field_hud_opacity")) or 90) * 255 / 100)
+    field_spin:SetTextureColor(GetARGB(a, 255, 255, 255))
+    field_gauge:SetTextureColor(GetARGB(a, 255, 255, 255))
+end
+
+local function field_hide()
+    if not field_visible then return end
+    if field_dlg then field_dlg:Show(false) end
+    field_visible = false
+end
+
+local function field_show(id)
+    if not build_field() then return end
+    -- (re)read geometry on the hidden -> visible edge so MCM tweaks apply
+    if not field_visible then
+        layout_field()
+        field_dlg:Show(true)
+        field_visible = true
+    end
+
+    -- the field HUD is its own feature: always show the spinner and gauge
+    local meta = style_meta(resolve_style())
+    set_frame(field_spin, meta, atlas_frame(meta, unloading[id] and UNLOAD_SPEED_MULT or 1))
+    field_spin:Show(true)
+
+    local pct = mag_fill(id)
+    if pct then
+        set_frame(field_gauge, gauge_meta, gauge_frame(pct))
+        field_gauge:Show(true)
+    else
+        field_gauge:Show(false)
+    end
+
+    if cfg("field_hud_text") ~= false and magazines and magazines.get_mag_data then
+        local md = magazines.get_mag_data(id)
+        if md and md.loaded and md.section then
+            local cap = SYS_GetParam(2, md.section, "max_mag_size") or 0
+            field_text:TextControl():SetText(string.format("%d / %d", #md.loaded, cap))
+            field_text:Show(true)
+        else
+            field_text:Show(false)
+        end
+    else
+        field_text:Show(false)
+    end
+end
+
+-- show the field HUD only while a mag is loading and the inventory is closed
+local function field_tick(has_active)
+    -- bail: nothing active and nothing on screen to take down
+    if not has_active and not field_visible then return end
+    if cfg("field_load_enable") == false then field_hide() return end
+    local m = GetActorMenu()
+    if not has_active or (m and m:IsShown()) then field_hide() return end
+    local id
+    for k in pairs(active) do id = k break end
+    if not id then field_hide() return end
+    field_show(id)
+end
+
+-- one central per-frame handler for everything we need :3
+local function on_update()
+    local has_active = next(active) ~= nil
+    -- the field HUD runs even with the actor menu closed
+    field_tick(has_active)
+
+    -- the in-menu overlays only matter while the actor menu is up
+    if not (has_active or flash_prev or box_release or next(mag_release) or next(mag_flash_prev)) then return end
+    local m = actor_menu_cc()
+    if not m then return end
+
+    -- flash first, then frame-stepping
+    flash_tick(m)
+    spinner_anim_tick(m)
+end
+
+local function on_opt_change()
+    apply_warm_texture()
+    -- refresh the field HUD geometry live if it is currently up
+    if field_visible then layout_field() end
+end
+
+function on_game_start()
+    RegisterScriptCallback("actor_on_first_update", init_warm)
+    RegisterScriptCallback("on_option_change", on_opt_change)
+    RegisterScriptCallback("actor_on_update", on_update)
+end

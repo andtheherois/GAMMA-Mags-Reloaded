@@ -1,0 +1,156 @@
+--[[
+    Magazine mark by Priler (https://github.com/Priler)
+    Submodule: Icon
+    t(-_-t)
+
+    Draws a small ammo-group glyph (FMJ / AP / HP / BUCK / SLUG) in the upper-right
+    corner of a marked magazine's inventory icon.
+    MCM configurable: off, colored, grayed out.
+
+    Used by Auto-Load function, in order to automatically load mags in 1 click based on the mag mark.
+    Optionally can have a distinct highlight colors.
+
+    WARNING: The code here could be kinda sh*t, cuz it doesn't quite use Haruka's DII, cuz I'm lazy ..
+    however it works perfect in game, so f*ck it.
+--]]
+
+local is_magazine = magazine_binder.is_magazine
+
+local function cfg(key)
+    if magazines_mcm and magazines_mcm.get_config then
+        return magazines_mcm.get_config(key)
+    end
+    return nil
+end
+
+-- atlas slot size (uniform 30x14)
+-- glyph art is right-aligned inside each slot,
+-- so a single right-anchored quad lines every label up at the same edge
+local SLOT_W, SLOT_H = 30, 14
+
+-- atlas px to layout px (grid-50 basis)
+-- the draw then scales by ratio*(grid/50)
+local MARK_SCALE = 0.85
+
+-- mark placement, baked from in-game tuning (grid-50 layout px):
+-- PAD_X insets the mark left from the icon right edge, PAD_Y down from the top,
+-- PAD_FAST adds extra left inset when the fast-load tag shares the corner
+local PAD_X    = 3
+local PAD_Y    = 0
+local PAD_FAST = 9
+
+-- Mags in this group already wear the fast-load tag in the top-right corner, the same spot the mark wants
+local FAST_GROUP_LTX = "custom_icon_layers\\groups\\group_fast.ltx"
+local fast_set = nil
+local function is_fast_mag(sec)
+    if not fast_set then
+        fast_set = {}
+        local ini = ini_file(FAST_GROUP_LTX)
+        if ini and ini:section_exist("fast_mags") then
+            for i = 0, ini:line_count("fast_mags") - 1 do
+                local _, key = ini:r_line("fast_mags", i, "", "")
+                if key and key ~= "" then fast_set[key] = true end
+            end
+        end
+    end
+    return fast_set[sec] == true
+end
+
+-- right/top anchor in the grid-50 layout frame: x is the layer's left edge so its
+-- right edge sits margin in from the slot right; y is the top inset
+local function anchor_right(axis_w, w, margin) return (axis_w - w) - margin end
+local function anchor_top(margin)              return margin end
+
+-- Place a texture layer the same way the inventory's cell overlays are drawn:
+-- scale both position and size by grid/50, squish x by ratio, offset by half size
+local function draw_layer(self, ele, base, tbl)
+    local ratio = utils_xml.screen_ratio()
+    local scale = (self.grid_size or 50) / 50
+    local x, y, w, h = tbl.x, tbl.y, tbl.w, tbl.h
+
+    local rot = ele:GetHeading() > 0
+    local x_s = x * ratio * scale
+    local y_s = y * scale
+    local w_s = w * ratio * scale
+    local h_s = h * scale
+    local w_off = (w_s / 2)
+    local h_off = (h_s / 2)
+
+    if rot then
+        -- match the rotated base icon's start pos; x and y swap, y goes negative
+        local w_b, h_b = base:GetWidth(), base:GetHeight()
+        local x_st = (w_b / 2) - (h_b / 2)
+        local y_st = h_b + x_st
+        x_s = x_st + (y * ratio * scale)
+        y_s = y_st - (x * scale)
+        w_s = w * scale
+        h_s = h * scale
+        w_off = (h_s - h_s * ratio / 2)
+        h_off = -w_s / 2
+    end
+
+    ele:InitTexture(tbl.texture)
+    ele:SetStretchTexture(true)
+    ele:SetWndPos(vector2():set(x_s + w_off, y_s + h_off))
+    ele:SetWndSize(vector2():set(w_s, h_s))
+    ele:Show(true)
+end
+
+-- returns the mark layer table for this cell, or nil if no mark should draw
+local function mark_layer_for(self, obj, sec)
+    local mode = tonumber(cfg("mark_icon_mode")) or 0
+    if mode == 0 then return nil end
+    if not (obj and sec and is_magazine(sec)) then return nil end
+
+    -- marks are keyed by object id, so there is nothing to draw
+    if self.showcase ~= 0 or type(obj) ~= "userdata" then return nil end
+
+    local mark = mag_marks and mag_marks.get_mark(obj:id())
+    if not mark then return nil end
+
+    local tex = "ui_mark_" .. mark .. (mode == 2 and "_gray" or "")
+
+    -- grid-50 basis (no grid_size arg), like the other right-anchored overlays
+    local axis = utils_xml.get_item_axis(sec)
+    local axis_w = (axis and axis.w) or 50
+    local w = SLOT_W * MARK_SCALE
+    local h = SLOT_H * MARK_SCALE
+
+    -- positive margin insets the mark left from the right edge
+    -- a fast-tagged mag insets further so the mark sits beside the fast-load tag instead of over it
+    local margin_h = PAD_X + (is_fast_mag(sec) and PAD_FAST or 0)
+    local margin_v = PAD_Y
+
+    return {
+        texture = tex,
+        x = anchor_right(axis_w, w, margin_h),
+        y = anchor_top(margin_v),
+        w = w,
+        h = h,
+    }
+end
+
+-- Hook the cell layer pass: draw (or hide) the mark, then run the original
+local _Add_Layers = utils_ui.UICellItem.Add_Layers
+function utils_ui.UICellItem.Add_Layers(self, xml, obj, sec, clsid)
+    xml = xml or self:GetXML()
+    obj = obj or (self.ID and level.object_by_id(self.ID))
+
+    local tbl = mark_layer_for(self, obj, sec)
+    if tbl then
+        if not self.mag_mark_layer then
+            self.mag_mark_layer = xml:InitStatic(self.path .. ":" .. self.cx .. ":pic", self.ico)
+        end
+        draw_layer(self, self.mag_mark_layer, self.ico, tbl)
+
+        --if cfg("debug") then
+            --printf("MAGMARK: sec=%s grid=%s axisw=%.1f x=%.1f w=%.1f",
+            --    sec, tostring(self.grid_size), (utils_xml.get_item_axis(sec).w or -1),
+            --    tbl.x, tbl.w)
+        --end
+    elseif self.mag_mark_layer then
+        self.mag_mark_layer:Show(false)
+    end
+
+    _Add_Layers(self, xml, obj, sec, clsid)
+end

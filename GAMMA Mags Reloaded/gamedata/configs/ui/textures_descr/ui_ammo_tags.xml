@@ -26,6 +26,18 @@
 		<texture id = "ui_338lap"			x="180"	y="0"	width="9"	height="34"/>	
 		<texture id = "ui_50bmg"			x="189"	y="0"	width="9"	height="34"/>	
 		<texture id = "ui_127x55"			x="198"	y="0"	width="9"	height="38"/>	
-		<texture id = "ui_300blk"			x="207"	y="0"	width="9"	height="40"/>			
+		<texture id = "ui_300blk"			x="207"	y="0"	width="9"	height="40"/>
+
+		<!-- magazine mark overlays: uniform slots, colored + gray -->
+		<texture id = "ui_mark_fmj"			x="0"	y="48"	width="30"	height="14"/>
+		<texture id = "ui_mark_ap"			x="32"	y="48"	width="30"	height="14"/>
+		<texture id = "ui_mark_hp"			x="64"	y="48"	width="30"	height="14"/>
+		<texture id = "ui_mark_buck"		x="96"	y="48"	width="30"	height="14"/>
+		<texture id = "ui_mark_slug"		x="128"	y="48"	width="30"	height="14"/>
+		<texture id = "ui_mark_fmj_gray"	x="0"	y="66"	width="30"	height="14"/>
+		<texture id = "ui_mark_ap_gray"		x="32"	y="66"	width="30"	height="14"/>
+		<texture id = "ui_mark_hp_gray"		x="64"	y="66"	width="30"	height="14"/>
+		<texture id = "ui_mark_buck_gray"	x="96"	y="66"	width="30"	height="14"/>
+		<texture id = "ui_mark_slug_gray"	x="128"	y="66"	width="30"	height="14"/>
 	</file>
 </w>

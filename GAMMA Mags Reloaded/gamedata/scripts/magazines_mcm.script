@@ -1,11 +1,20 @@
+-- Auto-Load: default hover-hotkey binds: side mouse buttons + middle, with safe fallbacks
+local KEY_LOAD    = (DIK_keys and (DIK_keys["MOUSE_5"] or DIK_keys["DIK_MOUSE_5"])) or 0
+local KEY_UNLOAD  = (DIK_keys and (DIK_keys["MOUSE_4"] or DIK_keys["DIK_MOUSE_4"])) or 0
+local KEY_LOADOUT = (DIK_keys and (DIK_keys["MOUSE_3"] or DIK_keys["DIK_MOUSE_3"])) or 0
+
 -- If you don't use MCM, change your defaults from here.
 local defaults = {
     debug					= false,
     mag_loadtime_factor		= 1,
     mag_unloadtime_factor	= 1,
+    move_load_factor		= 3,
     mag_tooltip             = 1,
     empty_mags_stack 		= true,
     sort_inv				= true,
+    holster_on_load			= true,
+    highlight_color			= "orange",
+    highlight_clr_a			= 100,
 
     show_hud				= true,
     icon_text				= true,
@@ -30,15 +39,60 @@ local defaults = {
 	three_hands				= false,
     deathquality			= 1.0,
     deathammo				= 1.0,
+
+    spinner_enable			= true,
+    spinner_style			= "tarkov_like",
+    spinner_scale			= 1,
+    spinner_size			= 22,
+    spinner_speed			= 0.6,
+    spinner_opacity			= 90,
+    spinner_dim				= false,
+    spinner_dim_amount		= 50,
+    box_flash_enable		= true,
+    mag_flash_enable		= true,
+    box_flash_strength		= 95,
+    box_flash_speed			= 90,
+    flash_easing			= "ease_in_out",
+    gauge_enable			= true,
+    gauge_gap				= 3,
+    gauge_opacity			= 70,
+    cancel_click_enable		= true,
+
+    field_load_enable		= true,
+    field_hud_text			= true,
+    field_hud_size			= 32,
+    field_hud_opacity		= 90,
+    field_hud_x_offset		= 0,
+    field_hud_y_offset		= 0,
+    field_jump_cancel		= true,
+
+    mark_color_fmj			= "lime",
+    mark_color_ap			= "aqua",
+    mark_color_hp			= "orange",
+    mark_color_buck			= "orange",
+    mark_color_slug			= "white",
+    mark_icon_mode			= 1,
+    untagged_load			= true,
+    untagged_pref_general	= "most",
+    untagged_pref_shotgun	= "most",
+    untagged_pref_sniper	= "most",
+
+    key_load_mag			= KEY_LOAD,
+    key_unload_mag			= KEY_UNLOAD,
+    key_loadout_mag			= KEY_LOADOUT,
 }
 
 local def_map = {
     debug					= "mgmt",
     mag_loadtime_factor		= "mgmt",
     mag_unloadtime_factor	= "mgmt",
+    move_load_factor		= "mgmt",
     mag_tooltip             = "mgmt",
     empty_mags_stack 		= "mgmt",
     sort_inv				= "mgmt",
+    holster_on_load			= "mgmt",
+    highlight_color			= "mgmt",
+    highlight_clr_a			= "mgmt",
 
     show_hud				= "hud",
     icon_text				= "hud",
@@ -62,6 +116,47 @@ local def_map = {
 	three_hands				= "gameplay",
     deathquality			= "gameplay",
     deathammo				= "gameplay",
+
+    spinner_enable			= "spinner",
+    spinner_style			= "spinner",
+    spinner_scale			= "spinner",
+    spinner_size			= "spinner",
+    spinner_speed			= "spinner",
+    spinner_opacity			= "spinner",
+    spinner_dim				= "spinner",
+    spinner_dim_amount		= "spinner",
+    box_flash_enable		= "spinner",
+    mag_flash_enable		= "spinner",
+    box_flash_strength		= "spinner",
+    box_flash_speed			= "spinner",
+    flash_easing			= "spinner",
+    gauge_enable			= "spinner",
+    gauge_gap				= "spinner",
+    gauge_opacity			= "spinner",
+    cancel_click_enable		= "spinner",
+
+    field_load_enable		= "field",
+    field_hud_text			= "field",
+    field_hud_size			= "field",
+    field_hud_opacity		= "field",
+    field_hud_x_offset		= "field",
+    field_hud_y_offset		= "field",
+    field_jump_cancel		= "field",
+
+    mark_color_fmj			= "hotkeys",
+    mark_color_ap			= "hotkeys",
+    mark_color_hp			= "hotkeys",
+    mark_color_buck			= "hotkeys",
+    mark_color_slug			= "hotkeys",
+    mark_icon_mode			= "hotkeys",
+    untagged_load			= "hotkeys",
+    untagged_pref_general	= "hotkeys",
+    untagged_pref_shotgun	= "hotkeys",
+    untagged_pref_sniper	= "hotkeys",
+
+    key_load_mag			= "hotkeys",
+    key_unload_mag			= "hotkeys",
+    key_loadout_mag			= "hotkeys",
 }
 
 local colors = {--alpha value will be reset to match slider
@@ -71,11 +166,31 @@ local colors = {--alpha value will be reset to match slider
     white = GetARGB(100, 255, 255, 255),
     brown = GetARGB(100, 165, 42, 42),
     blue = GetARGB(100, 0, 0, 255),
+
+    -- priler: colors extension
+    lime = GetARGB(100, 141, 232, 52),
+    khaki_green = GetARGB(100, 124, 159, 79),
+    khaki_desert = GetARGB(100, 173, 146, 57),
+    aqua = GetARGB(100, 49, 176, 231),
+    purple = GetARGB(100, 164, 112, 235),
+    teal = GetARGB(100, 7, 176, 176),
+    teal_dark = GetARGB(100, 111, 151, 170),
+}
+
+-- shared palette for the per-mark color lists. "none" leaves the base highlight
+-- color in place instead of overriding it for that group.
+local COLOR_CONTENT = {
+    {"none","none"},
+    {"brown","ram_brown"},{"white","ram_white"},{"blond","ram_blond"},{"blue","ram_blue"},
+    {"orange","ram_orange"},{"pink","ram_pink"},{"lime","ram_lime"},{"khaki_green","ram_khaki_green"},
+    {"khaki_desert","ram_khaki_desert"},{"aqua","ram_aqua"},{"purple","ram_purple"},
+    {"teal","ram_teal"},{"teal_dark","ram_teal_dark"},
 }
 
 
 function get_config(key)
-    if ui_mcm then return ui_mcm.get("magazines/"..def_map[key].."/"..key) else return defaults[key] end
+    local grp = def_map[key]
+    if ui_mcm and grp then return ui_mcm.get("magazines/"..grp.."/"..key) else return defaults[key] end
 end
 
 function on_mcm_load()
@@ -85,11 +200,13 @@ function on_mcm_load()
             {id = "debug", type = "check", val = 1, def=false},
             {id = "mag_loadtime_factor", type = "track", val = 2, min=0.4,max=2,step=0.1, def = 1},
             {id = "mag_unloadtime_factor", type = "track", val = 2, min=0.4,max=2,step=0.1, def = 1},
+            {id = "move_load_factor", type = "track", val = 2, min=1,max=5,step=0.5, def = 3},
             {id= "mag_tooltip" ,type= "list", val= 2  ,def= 1 ,content= {{0,"topround"},  {1,"trcap"}, {2,"full"}}	},
             {id = "empty_mags_stack", type = "check", val = 1, def=true},
             {id = "sort_inv", type = "check", val = 1, def=true},
-            {id= "highlight_color" ,type= "list"     ,val= 0  ,def= "orange" ,content= {{"brown","ram_brown"},{"white","ram_white"}, {"blond","ram_blond"} ,   {"blue","ram_blue"}, {"orange","ram_orange"} , {"pink","ram_pink"} }	},
-            {id= "highlight_clr_a" ,type= "track"    ,val= 2	,min= 0   ,max= 255    ,step= 1		,def= 100   },	
+            {id = "holster_on_load", type = "check", val = 1, def=true},
+            {id= "highlight_color" ,type= "list"     ,val= 0  ,def= "orange" ,content= {{"brown","ram_brown"},{"white","ram_white"}, {"blond","ram_blond"} ,   {"blue","ram_blue"}, {"orange","ram_orange"} , {"pink","ram_pink"} , {"lime","ram_lime"} , {"khaki_green","ram_khaki_green"} , {"khaki_desert","ram_khaki_desert"} , {"aqua","ram_aqua"} , {"purple","ram_purple"} , {"teal","ram_teal"} , {"teal_dark","ram_teal_dark"} }	},
+            {id= "highlight_clr_a" ,type= "track"    ,val= 2	,min= 0   ,max= 255    ,step= 1		,def= 100   },
         }},
         {id = "hud",sh=true,gr={
             {id= "hudtitle",type= "slide",text="ui_mcm_magazines_hudtitle",link= "ui_options_slider_player",size= {512,50},spacing= 20},
@@ -120,16 +237,91 @@ function on_mcm_load()
 			{ id= "rant", type= "desc", text= "ui_mcm_magazines_rant", clr= {255, 225, 0, 0}},
             {id = "three_hands", type = "check", val = 1, def=false},
         }},
+        {id = "spinner",sh=true,gr={
+            {id= "spntitle",type= "slide",text="ui_mcm_magazines_spntitle",link= "ui_options_slider_player",size= {512,50},spacing= 20},
+            {id = "spinner_enable", type = "check", val = 1, def=true},
+            {id = "spinner_style" ,type= "list" ,val= 0, def= "tarkov_like", content= {
+                {"default","default"},{"arrows","arrows"},{"chasing_arrows","chasing_arrows"},{"fading_line","fading_line"},{"tarkov_like","tarkov_like"},
+                {"growing_ring","growing_ring"},{"half_circle","half_circle"},{"half_circle_colored","half_circle_colored"},
+                {"half_circle_dimmed","half_circle_dimmed"},{"half_circle_green","half_circle_green"},{"line","line"},
+                {"recycle","recycle"},{"spinning_segments","spinning_segments"},
+                {"two_arrows","two_arrows"},{"wheel","wheel"}}},
+            {id = "spinner_scale" ,type= "list" ,val= 2, def= 1, content= {{1,"fixed"},{2,"scaled"}}},
+            {id = "spinner_size", type = "track", val = 2, min=16,max=64,step=2, def = 22},
+            {id = "spinner_speed", type = "track", val = 2, min=0.3,max=2.0,step=0.1, def = 0.6},
+            {id = "spinner_opacity", type = "track", val = 2, min=10,max=100,step=5, def = 90},
+            {id = "spinner_dim", type = "check", val = 1, def=false},
+            {id = "spinner_dim_amount", type = "track", val = 2, min=0,max=90,step=5, def = 50},
+            {id = "box_flash_enable", type = "check", val = 1, def=true},
+            {id = "mag_flash_enable", type = "check", val = 1, def=true},
+            {id = "box_flash_strength", type = "track", val = 2, min=10,max=100,step=5, def = 95},
+            {id = "box_flash_speed", type = "track", val = 2, min=25,max=200,step=5, def = 90},
+            {id = "flash_easing" ,type= "list" ,val= 0, def= "ease_in_out", content= {
+                {"linear","linear"},{"ease_in","ease_in"},{"ease_out","ease_out"},{"ease_in_out","ease_in_out"}}},
+            {id = "gauge_enable", type = "check", val = 1, def=true},
+            {id = "gauge_gap", type = "track", val = 2, min=0,max=20,step=1, def = 3},
+            {id = "gauge_opacity", type = "track", val = 2, min=10,max=100,step=5, def = 70},
+            {id = "cancel_click_enable", type = "check", val = 1, def=true},
+        }},
+        {id = "field",sh=true,gr={
+            {id= "fldtitle",type= "slide",text="ui_mcm_magazines_fldtitle",link= "ui_options_slider_player",size= {512,50},spacing= 20},
+            {id = "field_load_enable", type = "check", val = 1, def=true},
+            {id = "field_hud_text", type = "check", val = 1, def=true},
+            {id = "field_hud_size", type = "track", val = 2, min=16,max=160,step=2, def = 32},
+            {id = "field_hud_opacity", type = "track", val = 2, min=10,max=100,step=5, def = 90},
+            {id = "field_hud_x_offset", type = "track", val = 2, min=-500,max=500,step=2, def = 0},
+            {id = "field_hud_y_offset", type = "track", val = 2, min=-400,max=400,step=2, def = 0},
+            {id = "field_jump_cancel", type = "check", val = 1, def=true},
+        }},
+        {id = "hotkeys",sh=true,gr={
+            {id= "autoloadtitle",type= "slide",text="ui_mcm_magazines_autoloadtitle",link= "ui_options_slider_player",size= {512,50},spacing= 20},
+            {id = "untagged_load", type = "check", val = 1, def=true},
+            {id= "untagged_pref_shotgun" ,type= "list" ,val= 0 ,def= "most" ,content= {{"most","untag_most"},{"buck","untag_buck"},{"slug","untag_slug"},{"ap","untag_ap"}} },
+            {id= "untagged_pref_sniper" ,type= "list" ,val= 0 ,def= "most" ,content= {{"most","untag_most"},{"fmj","untag_fmj"},{"ap","untag_ap"},{"hp","untag_hp"}} },
+            {id= "untagged_pref_general" ,type= "list" ,val= 0 ,def= "most" ,content= {{"most","untag_most"},{"fmj","untag_fmj"},{"ap","untag_ap"},{"hp","untag_hp"}} },
+
+            {id = "markline", type = "line"},
+            {id= "marktitle",type= "slide",text="ui_mcm_magazines_marktitle",link= "ui_options_slider_player",size= {512,50},spacing= 20},
+            {id= "mark_icon_mode" ,type= "list" ,val= 2 ,def= 1 ,content= {{0,"mark_off"},{1,"mark_colored"},{2,"mark_gray"}} },
+            {id= "mark_color_fmj"  ,type= "list" ,val= 0 ,def= "lime"  ,content= COLOR_CONTENT },
+            {id= "mark_color_ap"   ,type= "list" ,val= 0 ,def= "aqua"  ,content= COLOR_CONTENT },
+            {id= "mark_color_hp"   ,type= "list" ,val= 0 ,def= "orange" ,content= COLOR_CONTENT },
+            {id= "mark_color_buck" ,type= "list" ,val= 0 ,def= "orange" ,content= COLOR_CONTENT },
+            {id= "mark_color_slug" ,type= "list" ,val= 0 ,def= "white" ,content= COLOR_CONTENT },
+
+            {id = "hotkeysline", type = "line"},
+            {id= "hkttitle",type= "slide",text="ui_mcm_magazines_hkttitle",link= "ui_options_slider_player",size= {512,50},spacing= 20},
+            {id = "key_load_mag",    type = "key_bind", val = 2, def = KEY_LOAD},
+            {id = "key_unload_mag",  type = "key_bind", val = 2, def = KEY_UNLOAD},
+            {id = "key_loadout_mag", type = "key_bind", val = 2, def = KEY_LOADOUT},
+        }},
         }
     }
+    if magazines_aml_compat_mcm and magazines_aml_compat_mcm.get_mcm_group then
+        local g = magazines_aml_compat_mcm.get_mcm_group()
+        if g then table.insert(op.gr, g) end
+    end
     return op
 end
 
 local function on_option_change()
-    if ui_mcm then
-        magazine_binder.ready_color = rax_persistent_highlight.change_alpha(colors[ui_mcm.get("magazines/mgmt/highlight_color")] or colors.orange , ui_mcm.get("magazines/mgmt/highlight_clr_a") or 100 )
-        empty_table(magazines.cache_mag_time)
+    local a = get_config("highlight_clr_a") or 100
+    local function resolve(key, fallback)
+        local v = get_config(key)
+        if v == "none" then return nil end          -- keep the base highlight
+        return rax_persistent_highlight.change_alpha(colors[v] or fallback, a)
     end
+    magazine_binder.ready_color = resolve("highlight_color", colors.orange)
+    -- per-mark highlight colors share the base opacity
+    -- nil means keeps the base highlight
+    magazine_binder.mark_colors = {
+        fmj  = resolve("mark_color_fmj",  colors.lime),
+        ap   = resolve("mark_color_ap",   colors.aqua),
+        hp   = resolve("mark_color_hp",   colors.orange),
+        buck = resolve("mark_color_buck", colors.orange),
+        slug = resolve("mark_color_slug", colors.white),
+    }
+    empty_table(magazines.cache_mag_time)
 end
 
 function on_game_start()

@@ -55,10 +55,6 @@ function print_err( text , ...)
 end
 
 
-
-
-
-
 -- actor action state
 local action_state = 0
 -- states (idle, mag to weapon reload in progress, ammo to mag load in progress)
@@ -69,11 +65,29 @@ ACTION_LOAD_MAG = 2
 local jammed_guns = {}
 local load_timeout = {}
 
+-- external animated-loading driver, nil = our own timed loop runs
+-- round_silent mutes our generic round sound while a driver paces the rounds and plays its own
+local load_driver = nil
+local round_silent = false
+
 -- due to changing how mag loading works (1 big event vs. several events) we need this here to persist which box we are taking ammo from
 local ext_ammo_box = nil
+-- cached section of ext_ammo_box, kept in step at every assignment
+local ext_ammo_section = nil
 
 -- flag to force reload during the animation instead of afterwards
 local force_reload = false
+
+-- holster-on-load: weapon slot to re-draw once the load ends and the inventory is closed
+local holster_saved_slot = nil
+-- a drawn device (detector) lives outside the weapon slots, so it is hidden and restored separately
+local holster_saved_detector = false
+
+-- is the actor inventory currently on screen
+local function inventory_shown()
+	local m = GetActorMenu()
+	return (m and m:IsShown()) or false
+end
 ------------------------
 -- SECTION debug info --
 ------------------------
@@ -96,8 +110,33 @@ function action_start_reload()
 	action_state = ACTION_RELOAD
 end
 
+-- put the weapon (and any drawn detector) away for a mag handling, remembering
+-- what to re-draw once the load ends and the inventory is closed
+-- force ignores the holster_on_load setting 
+local function do_holster_for_load(force)
+	if not db.actor then return end
+	if not (force or get_config("holster_on_load")) then return end
+	local s = db.actor:active_slot()
+	if s and s ~= 0 then
+		holster_saved_slot = s
+		db.actor:activate_slot(0)
+	end
+
+	-- a detector is not a weapon slot, so activate_slot(0) does not put it away
+	if db.actor:active_detector() then
+		holster_saved_detector = true
+		db.actor:hide_detector()
+	end
+end
+
+-- force the weapon/detector away even when holster_on_load is off
+function ensure_load_holster()
+	do_holster_for_load(true)
+end
+
 function action_start_magload()
 	action_state = ACTION_LOAD_MAG
+	do_holster_for_load(false)
 end
 
 function do_interrupt_reload()
@@ -108,13 +147,93 @@ end
 
 function do_interrupt_magload()
 	if action_state == ACTION_LOAD_MAG then
-		action_state = ACTION_NONE
+		-- route through do_interrupt so a registered animated-loading driver also
+		-- gets its interrupt()
+		-- (cam effector + hide anim)
+		do_interrupt()
 	end
+end
+
+-- forget the slot saved at load start so the weapon is not auto-drawn afterwards
+-- (used when a busy-hands cancel should leave the weapon holstered, e.g. talk/trade)
+function forget_holster()
+	holster_saved_slot = nil
+	holster_saved_detector = false
+end
+
+-- slot the weapon was put away from for this load, nil when not holstered
+function get_holster_slot()
+	return holster_saved_slot
+end
+
+-- true while a detector we hid for this load is still waiting to be re-shown
+function is_detector_holstered()
+	return holster_saved_detector
+end
+
+-- a round-by-round mag load is currently running
+function is_loading_mag()
+	return action_state == ACTION_LOAD_MAG
 end
 
 function do_interrupt()
 	action_state = ACTION_NONE
+	ext_ammo_section = nil
 	if mag_reload_speed then mag_reload_speed.clear_pending_mag() end
+	if mag_load_spinner then mag_load_spinner.clear_all() end
+
+	-- tell an external animated-loading driver to stop and play its hide anim
+	if load_driver and load_driver.interrupt then pcall(load_driver.interrupt) end
+end
+
+
+--[[
+    A compatibility layer for AML (Animated Magazine Loading).
+
+	It uses a contract design pattern to achieve a proper compatibility.
+    To achieve this, it implements:
+        driver.claim(magazine, is_unload, capacity, delay) -> bool
+            return true to take over the per-round loop for this load/unload
+        driver.interrupt()
+            stop, remove the cam effector and play the hide anim
+
+	While the driver owns the loop it paces rounds via load_one_round/unload_one_round
+	and we skip our own timed loop and the cell overlay.
+	
+	!! Remember to bump SEAM_CONTRACT on any breaking change to this interface
+	so the compat layer can version-gate.
+--]]
+
+SEAM_CONTRACT = 1
+function register_load_driver(d) load_driver = d end
+function clear_load_driver() load_driver = nil end
+function get_load_driver() return load_driver end
+
+-- Start the per-round load/unload loop
+function begin_round_loop(magazine, is_unload, capacity, delay)
+	local id = magazine:id()
+
+	-- progress overlay (inventory cell spinner + the field-load HUD gauge) runs for
+	-- both our timed loop and an external driver
+	if mag_load_spinner then mag_load_spinner.begin(id, is_unload) end
+
+	if load_driver and load_driver.claim then
+		local ok, claimed = pcall(load_driver.claim, magazine, is_unload, capacity, delay)
+		if ok and claimed then return end
+	end
+
+	if is_unload then
+		RemoveTimeEvent("mag_redux", "unload_mag"..id)
+		create_time_event("mag_redux", "unload_mag"..id, 0.1, unload_magazine, magazine, delay * 1000)
+	else
+		RemoveTimeEvent("Mag_redux", "load_mag"..id)
+		create_time_event("Mag_redux", "load_mag"..id, 0.1, load_magazine, magazine, capacity, delay * 1000)
+	end
+end
+
+-- Section of the ammo box currently feeding the load loop, nil when idle
+function get_loading_box_section()
+	return ext_ammo_section
 end
 
 local time_event_cache = {}
@@ -188,12 +307,12 @@ end
 
 -- return the section of the ammo loaded in weapon
 function get_sec_chambered(wpn)
-	local id = wpn:id()
-	local index = wpn:get_ammo_type()
-	if wpn:get_ammo_in_magazine() > 0 then
-		local ammo_map = invert_table(get_ammo_map(id))
-		return ammo_map[index + 1]
-	else return nil end
+	if wpn:get_ammo_in_magazine() <= 0 then return nil end
+	local want = wpn:get_ammo_type() + 1
+	for sec, idx in pairs(get_ammo_map(wpn:id())) do
+		if idx == want then return sec end
+	end
+	return nil
 end
 
 function retain_round(weapon)
@@ -247,9 +366,9 @@ function on_item_drag_dropped(item, weapon, from_slot, to_slot)
 				local delay = get_mag_time(weapon_sec, false)
 				print_dbg("Start load magazine at speed %s", delay)
 				ext_ammo_box = item  -- store object ref; get_object_by_id fails for container items
+				ext_ammo_section = item:section()
 				action_start_magload()
-				RemoveTimeEvent("Mag_redux", "load_mag"..weapon_id)
-				create_time_event("Mag_redux", "load_mag"..weapon_id, 0.1, load_magazine, weapon, capacity, delay * 1000)
+				begin_round_loop(weapon, false, capacity, delay)
 			end
 		end
 	end
@@ -655,9 +774,25 @@ no need to change state since reload event is suppressed
 end
 
 function actor_on_update()
-	FADArun = enhanced_animations and enhanced_animations.used_item and true or false
-	if action_in_progress() and FADArun then
-		do_interrupt()
+	-- busy-hands detection (FDDA/lizzardman anims, sprint, device draw)
+	if mag_field_load and mag_field_load.busy_hands_tick then
+		mag_field_load.busy_hands_tick()
+	end
+
+	-- re-draw the weapon and re-show the detector holstered for a mag load, once the
+	-- load has ended and the inventory is closed
+	if (holster_saved_slot or holster_saved_detector) and not action_in_progress() and not inventory_shown() then
+		if holster_saved_slot then
+			local s = holster_saved_slot
+			holster_saved_slot = nil
+			if db.actor and db.actor:active_slot() == 0 then
+				db.actor:activate_slot(s)
+			end
+		end
+		if holster_saved_detector then
+			holster_saved_detector = false
+			if db.actor then db.actor:show_detector() end
+		end
 	end
 end
 
@@ -728,11 +863,11 @@ function load_magazine(magazine, capacity, delay)
 
 	local tg = time_global()
 	if tg < last_time + delay then return false end
-	if IsMoveState("mcAnyMove") and tg < last_time + (3 * delay) then return false end
+	if IsMoveState("mcAnyMove") and tg < last_time + (get_config("move_load_factor") * delay) then return false end
 	last_time = tg
 
 	print_dbg("Try load magazine, Action state: %s", action_state)
-	if action_state ~= ACTION_LOAD_MAG or ext_ammo_box == nil then 
+	if action_state ~= ACTION_LOAD_MAG or ext_ammo_box == nil then
 		print_dbg("ending load prematurely. is ammo box nil? %s", ext_ammo_box == nil)
 		do_interrupt()
 		inventory_refresh()
@@ -761,20 +896,32 @@ function load_magazine(magazine, capacity, delay)
 		last_time = 0
 		return true
 	end
-	local num_bullets = ext_ammo_obj:ammo_get_count()
+
+	-- the stored ammo-box reference can go stale if the engine releases/merges the
+	-- stack mid-load (e.g. an inventory re-sort)
+	local probe_ok, num_bullets = pcall(function() return ext_ammo_obj:ammo_get_count() end)
+	if not probe_ok then
+		ext_ammo_box = nil
+		do_interrupt()
+		inventory_refresh()
+		last_time = 0
+		return true
+	end
 	local ammo_section = ext_ammo_obj:section()
 	if num_bullets == 1 then
 		print_dbg("Searching for next box")
 		local new_ammo_box = find_next_box(ammo_section, ext_ammo_obj:id())
 		alife_release(alife_object(ext_ammo_obj:id()))
 		ext_ammo_box = new_ammo_box  -- store next object ref (or nil to stop)
+		-- next box is the same caliber, so reuse ammo_section instead of querying it
+		ext_ammo_section = new_ammo_box and ammo_section or nil
 	else
 		ext_ammo_obj:ammo_set_count(num_bullets - 1)
 	end
 	stack.push(mag_data.loaded, ammo_section)
 	set_mag_data(id, mag_data)
 	print_dbg("Loaded 1 round of type %s. There are %s rounds loaded total", ammo_section, #mag_data.loaded)
-	utils_obj.play_sound("magazines\\ammo_load"..math.random(1, 7))
+	if not round_silent then utils_obj.play_sound("magazines\\ammo_load"..math.random(1, 7)) end
 	inventory_refresh(2)
 	return false
 end
@@ -783,7 +930,7 @@ function unload_magazine(magazine, delay, boxes)
 	
 	local tg = time_global()
 	if tg < last_time + delay then return false end
-	if IsMoveState("mcAnyMove") and tg < last_time + (3 * delay) then return false end
+	if IsMoveState("mcAnyMove") and tg < last_time + (get_config("move_load_factor") * delay) then return false end
 
 	last_time = tg
 
@@ -805,7 +952,7 @@ function unload_magazine(magazine, delay, boxes)
 		print_dbg("Unloaded 1 round of type %s. There are %s rounds left.", round, #mag_data.loaded)
 		create_ammo(round, mag_parent:position(), mag_parent:level_vertex_id(), mag_parent:game_vertex_id(), mag_parent:id(), 1)
 
-		utils_obj.play_sound("magazines\\ammo_load"..math.random(1, 7))
+		if not round_silent then utils_obj.play_sound("magazines\\ammo_load"..math.random(1, 7)) end
 	else
 		print_dbg("Mag empty, returning")
 		inventory_refresh()
@@ -813,6 +960,23 @@ function unload_magazine(magazine, delay, boxes)
 		do_interrupt()
 		return true
 	end
+end
+
+-- Public single-round steps for an external driver
+-- They move exactly one round and return true once the action is finished (mag full / ammo gone / mag empty)
+-- The silent flag mutes our generic round sound so the driver can play its own
+function load_one_round(magazine, capacity, silent)
+	round_silent = silent and true or false
+	local done = load_magazine(magazine, capacity, 0)
+	round_silent = false
+	return done and true or false
+end
+
+function unload_one_round(magazine, silent)
+	round_silent = silent and true or false
+	local done = unload_magazine(magazine, 0)
+	round_silent = false
+	return done and true or false
 end
 
 function fast_load_magazine(magazine, box, load_one)
@@ -887,17 +1051,9 @@ function fast_unload_magazine(magazine)
 	timed_refresh()
 end
 
-local load_cancel = {
-	[key_bindings.kQUIT] = true,
-	[key_bindings.kINVENTORY] = true
-
-}
 function on_key_press(key, bind, dis, flags)
-	-- do not interrupt if directional key pressed
-	if action_state ~= ACTION_NONE and (load_cancel[bind] or key == DIK_keys.DIK_LMENU) then
-		print_dbg("Interrupting mag loading")
-		do_interrupt_magload()
-	end
+	-- field-aware load/unload key cancel lives in mag_field_load
+	if mag_field_load and mag_field_load.handle_load_cancel_key(key, bind, flags) then return end
 	if bind == key_bindings.kWPN_RELOAD then
 
 		local current_weapon = db.actor:item_in_slot(db.actor:active_slot())
@@ -937,14 +1093,48 @@ function func_unload_ammo(obj)
 	if parent_is_box(obj) or get_config("unload_behavior") == 1 then--get_config("fast_loading") and parent_is_box(obj) then
 		fast_unload_magazine(obj)
 	else
-		local delay = get_mag_time(obj:section(), true)	
+		local delay = get_mag_time(obj:section(), true)
 		print_dbg("Start unload magazine at speed %s", delay)
 		action_start_magload()
-		RemoveTimeEvent("mag_redux", "unload_mag"..id)
-		-- boxes = find_boxes(obj)
-		create_time_event("mag_redux","unload_mag"..id, 0.1, unload_magazine, obj, delay * 1000)
+		begin_round_loop(obj, true, nil, delay)
 	end
 
+end
+
+-- Public: start a load of `magazine` from a specific ammo object
+-- Mirrors the ammo->mag branch of on_item_drag_dropped but with
+-- a caller-chosen box (used by the hover load hotkey)
+--
+-- Respects the load_behavior setting
+-- Returns true if a load was started
+function begin_mag_load(magazine, ammo_obj)
+	if action_in_progress() then return false end
+	if not (magazine and ammo_obj and is_magazine(magazine)) then return false end
+
+	-- compatibility: the ammo must be a round this mag accepts
+	local ammos = invert_table(get_magazine_caliber(magazine))
+	if ammos[ammo_obj:section()] == nil then return false end
+
+	local id = magazine:id()
+	local mag_sec = magazine:section()
+	local capacity = SYS_GetParam(2, mag_sec, "max_mag_size") or 20
+
+	local mag_data = get_mag_data(id) or magazine_binder.create_mag_data(id, mag_sec)
+	if #mag_data.loaded >= capacity then return false end
+
+	local behavior = get_config("load_behavior")
+	if behavior == 1 then
+		fast_load_magazine(magazine, ammo_obj)
+	elseif behavior == 2 then
+		fast_load_magazine(magazine, ammo_obj, true)
+	else
+		local delay = get_mag_time(mag_sec, false)
+		ext_ammo_box = ammo_obj          -- object ref; container items have no id lookup
+		ext_ammo_section = ammo_obj:section()
+		action_start_magload()
+		begin_round_loop(magazine, false, capacity, delay)
+	end
+	return true
 end
 
 function loadout_precondition(obj)

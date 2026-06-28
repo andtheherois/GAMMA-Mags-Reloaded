@@ -1,0 +1,210 @@
+--[[
+    Field magazine loading by Priler (https://github.com/Priler)
+    Inspired by similar Tarkov SPT mod.
+    t(-_-t)
+
+    Allows for round-by-round mag load/unload keep running after the inventory is closed.
+
+    A field load should stop the moment the hands get busy with anything else:
+    drawing a weapon/knife/bolt/device, an FDDA/lizzardman hand animation, looting
+    a body or container, trading, repairing, butchering, using an item, talking to
+    an NPC, opening a craft bench, sprinting, etc etc etc.
+--]]
+
+local function cfg(key)
+    if not magazines_mcm then return nil end
+    return magazines_mcm.get_config(key)
+end
+
+-- previous-frame state for spotting a hand-held device (detector) being drawn: a
+-- device does not change the weapon slot, so it needs its own rising edge
+local last_detector_active = false
+local last_inv_shown = false
+
+-- lam2 (FDDA Redone) also runs involuntary, cosmetic animations while you just
+-- stand there: an auto mask wipe in rain, a headlamp toggle, the weapon
+-- lower/raise housekeeping.
+-- those must NOT cancel a field load
+local lam2_housekeeping_tags = {
+    wpn_hide = true,
+    show_items_in_hands = true,
+    stop_lam2 = true,
+    wait_for_seconds = true,
+}
+
+local function lam2_hands_busy()
+    if not (lam2 and lam2.is_running and lam2.is_running()) then return false end
+    local act = lam2.get_current_action and lam2.get_current_action()
+    local tag = act and act.tag
+    if not tag then return false end
+    return not lam2_housekeeping_tags[tag]
+end
+
+local function loading_mag()
+    return magazines and magazines.is_loading_mag and magazines.is_loading_mag()
+end
+
+local function cancel_load()
+    if magazines and magazines.do_interrupt_magload then magazines.do_interrupt_magload() end
+end
+
+-- cancel but leave the weapon holstered (the player put it away on purpose)
+local function cancel_load_holstered()
+    if not loading_mag() then return end
+    if magazines.forget_holster then magazines.forget_holster() end
+    magazines.do_interrupt_magload()
+end
+
+-- Free Zoom only changes the FOV, so no cancel
+local function free_zoom_active()
+    return (Free_ZoomV2_mcm and Free_ZoomV2_mcm.freezooming) and true or false
+end
+
+local function free_zoom_key()
+    return Free_ZoomV2_mcm and Free_ZoomV2_mcm.KEY_TOGGLE_ZOOM
+end
+
+-- per-frame checks, called from magazines.actor_on_update
+function busy_hands_tick()
+    if not magazines then return end
+
+    if free_zoom_active() then
+        last_detector_active = (db.actor and db.actor:active_detector()) and true or false
+        local m = GetActorMenu()
+        last_inv_shown = (m and m:IsShown()) or false
+        return
+    end
+    -- a deliberate scripted hand animation: classic FDDA sets
+    -- enhanced_animations.used_item; the lizzardman manager reports it through a
+    -- tagged lam2 action
+    local hands_busy = (enhanced_animations and enhanced_animations.used_item)
+        or lam2_hands_busy()
+    if hands_busy and magazines.action_in_progress and magazines.action_in_progress() then
+        if magazines.do_interrupt then magazines.do_interrupt() end
+    end
+
+    -- you cannot top up a mag while sprinting
+    if IsMoveState("mcSprint") then cancel_load() end
+
+    -- a device (detector, ...) drawn mid-load
+    local m = GetActorMenu()
+    local inv = (m and m:IsShown()) or false
+    local det_now = (db.actor and db.actor:active_detector()) and true or false
+
+    -- a detector we hid for this load can be re-shown by engine housekeeping
+    local det_holstered = magazines.is_detector_holstered and magazines.is_detector_holstered()
+    if det_now and not last_detector_active and not inv and not last_inv_shown and not det_holstered then
+        -- if a player deliberately pulled a device
+        cancel_load_holstered()
+    end
+    last_detector_active = det_now
+    last_inv_shown = inv
+end
+
+-- Drawing a weapon/knife/bolt is a real slot change and should stop the load.
+-- BUT the engine and FDDA also fire slot changes that are NOT a deliberate draw:
+-- the inventory-close re-draw of the weapon we holstered, and FDDA re-equipping
+-- the weapon at the end of a cosmetic animation (mask wipe, headlamp, ...)
+-- those must not cancel a field load :3
+local function on_changed_slot(new_slot, new_obj, prev_slot, prev_obj)
+    if not loading_mag() then return end
+    local holstered = magazines.get_holster_slot and magazines.get_holster_slot()
+    local fdda_busy = (lam2 and lam2.is_running and lam2.is_running()) and true or false
+    local inv_open = (GetActorMenu() and GetActorMenu():IsShown()) or false
+    if not (new_slot and new_slot ~= 0) then return end
+
+    -- housekeeping re-equip: ignore and keep the load running
+    local is_holster_redraw = holstered and new_slot == holstered
+    if fdda_busy or is_holster_redraw then
+        -- if we put the weapon away for this load and we are not inside the
+        -- inventory UI, shove it back down so it stays holstered
+        if holstered and not inv_open and db.actor and db.actor:active_slot() ~= 0 then
+            db.actor:activate_slot(0)
+        end
+        return
+    end
+
+    -- a deliberate draw of a different weapon: take hands off the mag
+    cancel_load_holstered()
+end
+
+-- opening anything other than your own inventory busies the hands
+-- Modes: 0 closed, 1 inventory, 2 trade, 3 repair, 4 loot (body or container)
+local function on_mode_changed(new_mode)
+    if new_mode and new_mode > 1 then cancel_load() end
+end
+
+-- butchering or otherwise using a mutant corpse
+local function on_monster_use(monster, who)
+    cancel_load()
+end
+
+-- using any item (food, drink, meds, a tool, ...): fires before the animation
+local function on_item_before_use(obj, flags)
+    cancel_load()
+end
+
+-- talking to or trading with an NPC: leave the weapon holstered on cancel
+local function on_npc_use(npc, who)
+    cancel_load_holstered()
+end
+
+-- opening a craft/repair/upgrade workshop (registers as "UIWorkshop")
+local function on_gui_show(name, path)
+    if name and string.find(name, "Workshop") then cancel_load() end
+end
+
+-- keys that cancel a load when field loading is OFF (classic behavior)
+local cancel_binds = {
+    [key_bindings.kQUIT] = true,
+    [key_bindings.kINVENTORY] = true,
+}
+
+-- Field-aware cancel for an in-progress mag load/unload from a key press
+-- Public so magazines.script (and mods like Ammo Check Enhanced) can delegate
+--
+-- returns true when it consumed the reload key so the caller stops handling it
+function handle_load_cancel_key(key, bind, flags)
+    if not (magazines and magazines.action_in_progress and magazines.action_in_progress()) then return end
+
+    -- the free zoom key only changes the FOV, so no cancel
+    if key and key == free_zoom_key() then return end
+
+    -- a manual headlamp toggle or mask wipe plays a hand animation, so either stops a load in both modes
+    if bind == key_bindings.kTORCH or bind == key_bindings.kCAM_ZOOM_IN then
+        cancel_load_holstered()
+        return
+    end
+
+    -- jumping stops a careful round-by-round load (we're not in a fkn circus)
+    if bind == key_bindings.kJUMP and cfg("field_jump_cancel") ~= false then
+        magazines.do_interrupt_magload()
+        return
+    end
+    local m = GetActorMenu()
+    local inv = (m and m:IsShown()) or false
+    if cfg("field_load_enable") ~= false then
+        -- field loading keeps a load alive after the inventory closes, so the
+        -- inventory-toggle and quit keys must NOT cancel it
+        if not inv and bind == key_bindings.kWPN_RELOAD then
+            magazines.do_interrupt_magload()
+            if flags then flags.ret_value = false end
+            return true
+        elseif key == DIK_keys.DIK_LMENU then
+            magazines.do_interrupt_magload()
+        end
+    elseif cancel_binds[bind] or key == DIK_keys.DIK_LMENU then
+        -- field loading off: closing the inventory or quitting cancels (classic)
+        magazines.do_interrupt_magload()
+    end
+end
+
+function on_game_start()
+    -- the load state is owned by magazines.script
+    RegisterScriptCallback("actor_on_changed_slot", on_changed_slot)
+    RegisterScriptCallback("ActorMenu_on_mode_changed", on_mode_changed)
+    RegisterScriptCallback("monster_on_actor_use_callback", on_monster_use)
+    RegisterScriptCallback("actor_on_item_before_use", on_item_before_use)
+    RegisterScriptCallback("npc_on_use", on_npc_use)
+    RegisterScriptCallback("GUI_on_show", on_gui_show)
+end

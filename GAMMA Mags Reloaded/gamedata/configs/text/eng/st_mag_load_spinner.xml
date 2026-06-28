@@ -1,0 +1,284 @@
+<?xml version="1.0" encoding="windows-1251"?>
+<string_table>
+    <!-- Sidebar subcategory name -->
+    <string id="ui_mcm_menu_spinner">
+        <text>Spinner/Gauge</text>
+    </string>
+
+    <!-- Group title -->
+    <string id="ui_mcm_magazines_spntitle">
+        <text>Spinner/Gauge</text>
+    </string>
+
+    <!-- Enable -->
+    <string id="ui_mcm_magazines_spinner_spinner_enable">
+        <text>Show Loading Spinner</text>
+    </string>
+    <string id="ui_mcm_magazines_spinner_spinner_enable_desc">
+        <text>Show an animated spinner over a magazine while it is being topped up or unloaded round by round.</text>
+    </string>
+
+    <!-- Style -->
+    <string id="ui_mcm_magazines_spinner_spinner_style">
+        <text>Spinner Style</text>
+    </string>
+    <string id="ui_mcm_magazines_spinner_spinner_style_desc">
+        <text>Visual style of the spinner animation.</text>
+    </string>
+
+    <!-- Scale mode -->
+    <string id="ui_mcm_magazines_spinner_spinner_scale">
+        <text>Spinner Size Mode</text>
+    </string>
+    <string id="ui_mcm_magazines_spinner_spinner_scale_desc">
+        <text>How the spinner is sized. Fixed uses the size below, Scaled fits it to the magazine icon (capped by the size below).</text>
+    </string>
+
+    <!-- Size -->
+    <string id="ui_mcm_magazines_spinner_spinner_size">
+        <text>Spinner Size (px)</text>
+    </string>
+    <string id="ui_mcm_magazines_spinner_spinner_size_desc">
+        <text>Spinner size in pixels (fixed mode) or maximum size (scaled mode).</text>
+    </string>
+
+    <!-- Rotation speed -->
+    <string id="ui_mcm_magazines_spinner_spinner_speed">
+        <text>Spinner Speed</text>
+    </string>
+    <string id="ui_mcm_magazines_spinner_spinner_speed_desc">
+        <text>Scales how fast the spinner animates. 1.0 is normal, lower is slower, higher is faster.</text>
+    </string>
+
+    <!-- Opacity -->
+    <string id="ui_mcm_magazines_spinner_spinner_opacity">
+        <text>Spinner Opacity (%)</text>
+    </string>
+    <string id="ui_mcm_magazines_spinner_spinner_opacity_desc">
+        <text>Transparency of the spinner (10-100%).</text>
+    </string>
+
+    <!-- Dim enable -->
+    <string id="ui_mcm_magazines_spinner_spinner_dim">
+        <text>Dim Magazine Icon</text>
+    </string>
+    <string id="ui_mcm_magazines_spinner_spinner_dim_desc">
+        <text>Darken the magazine icon a little while the spinner is active.</text>
+    </string>
+
+    <!-- Dim amount -->
+    <string id="ui_mcm_magazines_spinner_spinner_dim_amount">
+        <text>Dim Amount (%)</text>
+    </string>
+    <string id="ui_mcm_magazines_spinner_spinner_dim_amount_desc">
+        <text>How much to darken the magazine icon while topping up (0 = none, higher = darker).</text>
+    </string>
+
+    <!-- Box flash enable -->
+    <string id="ui_mcm_magazines_spinner_box_flash_enable">
+        <text>Flash Source Ammo</text>
+    </string>
+    <string id="ui_mcm_magazines_spinner_box_flash_enable_desc">
+        <text>Fade the ammo box (or stack) you are loading from in and out while rounds are being moved into the magazine.</text>
+    </string>
+
+    <!-- Magazine flash enable -->
+    <string id="ui_mcm_magazines_spinner_mag_flash_enable">
+        <text>Flash Magazine</text>
+    </string>
+    <string id="ui_mcm_magazines_spinner_mag_flash_enable_desc">
+        <text>Fade the magazine being loaded or unloaded in and out, the same pulse used for the source ammo. Uses the shared strength and speed below.</text>
+    </string>
+
+    <!-- Flash strength (shared by source ammo and magazine) -->
+    <string id="ui_mcm_magazines_spinner_box_flash_strength">
+        <text>Flash Strength (%)</text>
+    </string>
+    <string id="ui_mcm_magazines_spinner_box_flash_strength_desc">
+        <text>How far the icon fades at the dim end of the pulse. Higher is more transparent, 100% fades it fully out. Shared by the source ammo and magazine flash.</text>
+    </string>
+
+    <!-- Flash speed (shared by source ammo and magazine) -->
+    <string id="ui_mcm_magazines_spinner_box_flash_speed">
+        <text>Flash Speed (%)</text>
+    </string>
+    <string id="ui_mcm_magazines_spinner_box_flash_speed_desc">
+        <text>Pulse speed. 100% is about one fade cycle per second. Shared by the source ammo and magazine flash.</text>
+    </string>
+
+    <!-- Flash easing (shared by source ammo and magazine) -->
+    <string id="ui_mcm_magazines_spinner_flash_easing">
+        <text>Flash Curve</text>
+    </string>
+    <string id="ui_mcm_magazines_spinner_flash_easing_desc">
+        <text>Shape of the fade. Linear is a constant rate, Ease In lingers bright then snaps dim, Ease Out snaps dim then lingers, Ease In-Out is smooth at both ends. Shared by the source ammo and magazine flash.</text>
+    </string>
+    <string id="magazines_spinner_flash_easing_lst_linear">
+        <text>Linear</text>
+    </string>
+    <string id="magazines_spinner_flash_easing_lst_ease_in">
+        <text>Ease In</text>
+    </string>
+    <string id="magazines_spinner_flash_easing_lst_ease_out">
+        <text>Ease Out</text>
+    </string>
+    <string id="magazines_spinner_flash_easing_lst_ease_in_out">
+        <text>Ease In-Out (Smooth)</text>
+    </string>
+
+    <!-- Fill gauge enable -->
+    <string id="ui_mcm_magazines_spinner_gauge_enable">
+        <text>Show Fill Gauge</text>
+    </string>
+    <string id="ui_mcm_magazines_spinner_gauge_enable_desc">
+        <text>Draw an outer ring around the spinner that fills up as the magazine is topped up, showing how full it is.</text>
+    </string>
+
+    <!-- Fill gauge gap -->
+    <string id="ui_mcm_magazines_spinner_gauge_gap">
+        <text>Gauge Gap (px)</text>
+    </string>
+    <string id="ui_mcm_magazines_spinner_gauge_gap_desc">
+        <text>How much bigger the gauge ring is than the spinner. Higher values push the ring further out from the spinner.</text>
+    </string>
+
+    <!-- Fill gauge opacity -->
+    <string id="ui_mcm_magazines_spinner_gauge_opacity">
+        <text>Gauge Opacity (%)</text>
+    </string>
+    <string id="ui_mcm_magazines_spinner_gauge_opacity_desc">
+        <text>Transparency of the fill gauge ring (10-100%).</text>
+    </string>
+
+    <!-- Click to cancel -->
+    <string id="ui_mcm_magazines_spinner_cancel_click_enable">
+        <text>Click Loading Mag to Cancel</text>
+    </string>
+    <string id="ui_mcm_magazines_spinner_cancel_click_enable_desc">
+        <text>Hover a magazine that is loading or unloading to show a cancel cross and turn the spinner and gauge red, then left-click it to stop the load.</text>
+    </string>
+
+    <!-- Scale mode list values -->
+    <string id="magazines_spinner_spinner_scale_lst_fixed">
+        <text>Fixed Size</text>
+    </string>
+    <string id="magazines_spinner_spinner_scale_lst_scaled">
+        <text>Scale with Icon</text>
+    </string>
+
+    <!-- Style list values -->
+    <string id="magazines_spinner_spinner_style_lst_default">
+        <text>Default</text>
+    </string>
+    <string id="magazines_spinner_spinner_style_lst_arrows">
+        <text>Arrows</text>
+    </string>
+    <string id="magazines_spinner_spinner_style_lst_chasing_arrows">
+        <text>Chasing Arrows</text>
+    </string>
+    <string id="magazines_spinner_spinner_style_lst_fading_line">
+        <text>Fading Line</text>
+    </string>
+    <string id="magazines_spinner_spinner_style_lst_tarkov_like">
+        <text>Tarkov-like</text>
+    </string>
+    <string id="magazines_spinner_spinner_style_lst_growing_ring">
+        <text>Growing Ring</text>
+    </string>
+    <string id="magazines_spinner_spinner_style_lst_half_circle">
+        <text>Half Circle</text>
+    </string>
+    <string id="magazines_spinner_spinner_style_lst_half_circle_colored">
+        <text>Half Circle (Colored)</text>
+    </string>
+    <string id="magazines_spinner_spinner_style_lst_half_circle_dimmed">
+        <text>Half Circle (Dimmed)</text>
+    </string>
+    <string id="magazines_spinner_spinner_style_lst_half_circle_green">
+        <text>Half Circle (Green)</text>
+    </string>
+    <string id="magazines_spinner_spinner_style_lst_line">
+        <text>Line</text>
+    </string>
+    <string id="magazines_spinner_spinner_style_lst_recycle">
+        <text>Recycle</text>
+    </string>
+    <string id="magazines_spinner_spinner_style_lst_spinning_segments">
+        <text>Spinning Segments</text>
+    </string>
+    <string id="magazines_spinner_spinner_style_lst_two_arrows">
+        <text>Two Arrows</text>
+    </string>
+    <string id="magazines_spinner_spinner_style_lst_wheel">
+        <text>Wheel</text>
+    </string>
+
+
+
+
+    <!-- Sidebar subcategory name -->
+    <string id="ui_mcm_menu_field">
+        <text>Field Loading</text>
+    </string>
+
+    <!-- Group title -->
+    <string id="ui_mcm_magazines_fldtitle">
+        <text>Field Loading</text>
+    </string>
+
+    <!-- Enable -->
+    <string id="ui_mcm_magazines_field_field_load_enable">
+        <text>Enable Field Loading</text>
+    </string>
+    <string id="ui_mcm_magazines_field_field_load_enable_desc">
+        <text>Keep a magazine loading or unloading after you close the inventory, with an on-screen spinner and fill gauge. Off restores the classic behavior where closing the inventory cancels the load.</text>
+    </string>
+
+    <!-- Show count text -->
+    <string id="ui_mcm_magazines_field_field_hud_text">
+        <text>Show Round Count</text>
+    </string>
+    <string id="ui_mcm_magazines_field_field_hud_text_desc">
+        <text>Show the current round count under the gauge, for example "12 / 30", while loading with the inventory closed.</text>
+    </string>
+
+    <!-- Size -->
+    <string id="ui_mcm_magazines_field_field_hud_size">
+        <text>Field HUD Size (px)</text>
+    </string>
+    <string id="ui_mcm_magazines_field_field_hud_size_desc">
+        <text>Size of the on-screen spinner and gauge shown while loading with the inventory closed.</text>
+    </string>
+
+    <!-- Opacity -->
+    <string id="ui_mcm_magazines_field_field_hud_opacity">
+        <text>Field HUD Opacity (%)</text>
+    </string>
+    <string id="ui_mcm_magazines_field_field_hud_opacity_desc">
+        <text>Transparency of the on-screen spinner and gauge (10-100%).</text>
+    </string>
+
+    <!-- X offset -->
+    <string id="ui_mcm_magazines_field_field_hud_x_offset">
+        <text>Field HUD X Offset</text>
+    </string>
+    <string id="ui_mcm_magazines_field_field_hud_x_offset_desc">
+        <text>Shift the field HUD left or right from the center of the screen.</text>
+    </string>
+
+    <!-- Y offset -->
+    <string id="ui_mcm_magazines_field_field_hud_y_offset">
+        <text>Field HUD Y Offset</text>
+    </string>
+    <string id="ui_mcm_magazines_field_field_hud_y_offset_desc">
+        <text>Shift the field HUD up or down from its default lower-center position.</text>
+    </string>
+
+    <!-- Jump cancels loading -->
+    <string id="ui_mcm_magazines_field_field_jump_cancel">
+        <text>Jumping Cancels Loading</text>
+    </string>
+    <string id="ui_mcm_magazines_field_field_jump_cancel_desc">
+        <text>Stop an in-progress field load when you jump. A jump jostles a careful round-by-round load, so by default it cancels it.</text>
+    </string>
+</string_table>

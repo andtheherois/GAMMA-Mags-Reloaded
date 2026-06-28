@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="windows-1251"?>
+<string_table>
+
+	<!-- subcategory label in the Magazines menu sidebar (group id "aml_compat") -->
+	<string id="ui_mcm_menu_aml_compat">
+		<text>AML Compatibility</text>
+	</string>
+	<string id="ui_mcm_magazines_compat_title">
+		<text>AML Compatibility</text>
+	</string>
+	<string id="ui_mcm_magazines_compat_aml_desc">
+		<text>Animated Magazine Loading detected. When enabled, loading and unloading a magazine plays its hand animation instead of the inventory cell spinner. The magazine contents, weapon holstering and cancel behaviour are unchanged. Loading speed follows the animation, not the load-time setting.</text>
+	</string>
+	<string id="ui_mcm_magazines_compat_aml_enable">
+		<text>Enable Animated Magazine Loading</text>
+	</string>
+	<string id="ui_mcm_magazines_compat_aml_enable_desc">
+		<text>Use the Animated Magazine Loading hand animations for round-by-round mag loading and unloading. Turn off to keep the inventory cell spinner.</text>
+	</string>
+
+</string_table>

@@ -61,6 +61,12 @@
 	<string id="ui_mcm_magazines_mag_unloadtime_factor_desc">
 		<text>Множитель для времени разряжания патронов \nЕсли помагазинное время на зарядку отключено, может расчитываться как секунды</text>
 	</string>
+	<string id="ui_mcm_magazines_mgmt_move_load_factor">
+		<text>Штраф за зарядку/разрядку в движении</text>
+	</string>
+	<string id="ui_mcm_magazines_mgmt_move_load_factor_desc">
+		<text>Насколько медленнее патроны заряжаются/разряжаются во время движения. 1 = без штрафа, 3 = в три раза медленнее (по умолчанию).</text>
+	</string>
 	<string id="ui_mcm_magazines_debug">
 		<text>Включить запись в Дебаг лог</text>
 	</string>
@@ -110,6 +116,27 @@
 	</string>
 	<string id="ui_mcm_lst_ram_blue">
 		<text>Голубой</text>
+	</string>
+	<string id="ui_mcm_lst_ram_lime">
+		<text>Лаймовый</text>
+	</string>
+	<string id="ui_mcm_lst_ram_khaki_green">
+		<text>Хаки зелёный</text>
+	</string>
+	<string id="ui_mcm_lst_ram_khaki_desert">
+		<text>Хаки песочный</text>
+	</string>
+	<string id="ui_mcm_lst_ram_aqua">
+		<text>Аква</text>
+	</string>
+	<string id="ui_mcm_lst_ram_purple">
+		<text>Фиолетовый</text>
+	</string>
+	<string id="ui_mcm_lst_ram_teal">
+		<text>Бирюзовый</text>
+	</string>
+	<string id="ui_mcm_lst_ram_teal_dark">
+		<text>Тёмно-бирюзовый</text>
 	</string>
 	
 	<string id="ui_mcm_magazines_show_hud">
