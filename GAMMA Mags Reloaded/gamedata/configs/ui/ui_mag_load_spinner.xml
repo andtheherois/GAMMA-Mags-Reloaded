@@ -11,6 +11,12 @@
         <texture>ui\load_gauges\fill_ring\gauge_atlas</texture>
     </mag_gauge>
 
+    <!-- Cancel "X" shown in the cell centre while the mouse hovers a loading
+         magazine -->
+    <mag_cross x="0" y="0" width="16" height="16" stretch="1">
+        <texture>ui\load_cross\cross</texture>
+    </mag_cross>
+
     <!-- Round count "X / Y" under the field HUD gauge while a magazine loads
          with the inventory closed -->
     <mag_load_text x="0" y="0" width="220" height="26" stretch="1">

@@ -215,7 +215,7 @@ function begin_round_loop(magazine, is_unload, capacity, delay)
 
 	-- progress overlay (inventory cell spinner + the field-load HUD gauge) runs for
 	-- both our timed loop and an external driver
-	if mag_load_spinner then mag_load_spinner.begin(id) end
+	if mag_load_spinner then mag_load_spinner.begin(id, is_unload) end
 
 	if load_driver and load_driver.claim then
 		local ok, claimed = pcall(load_driver.claim, magazine, is_unload, capacity, delay)

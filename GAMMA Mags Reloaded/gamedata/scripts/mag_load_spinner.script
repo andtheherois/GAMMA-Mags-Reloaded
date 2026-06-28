@@ -14,6 +14,13 @@
 -- [mag_id] = true while that magazine is actively loading/unloading
 local active = {}
 
+-- [mag_id] = 0..1 hover-cancel fade (0 = idle/white, 1 = hovered/red + X shown)
+local hover_fade = {}
+
+-- [mag_id] = true while that magazine is unloading
+local unloading = {}
+local UNLOAD_SPEED_MULT = 3 -- unload spinner spins faster
+
 -- known spinner style folders under textures\ui\load_spinners
 local known_styles = {
     ["default"] = true, ["arrows"] = true, ["chasing_arrows"] = true,
@@ -88,8 +95,8 @@ local function style_meta(style)
 end
 
 -- current frame index, advanced by wall-clock so every spinner stays in sync
-local function atlas_frame(meta)
-    local speed = tonumber(cfg("spinner_speed")) or 1
+local function atlas_frame(meta, mult)
+    local speed = (tonumber(cfg("spinner_speed")) or 1) * (mult or 1)
     if speed <= 0 then speed = 1 end
     local per = 1000 / ((meta.fps or 26) * speed)
     return math.floor(time_global() / per) % (meta.frames or 1)
@@ -148,6 +155,22 @@ local function gauge_on()
     return cfg("gauge_enable") ~= false
 end
 
+-- hover a loading mag to reveal a cancel "X" and turn the overlays red
+-- click cancels nmag load
+local function cancel_on()
+    return cfg("cancel_click_enable") ~= false
+end
+
+local function spinner_alpha()
+    local opacity = tonumber(cfg("spinner_opacity")) or 90
+    return math.floor(opacity * 255 / 100)
+end
+
+local function gauge_alpha()
+    local opacity = tonumber(cfg("gauge_opacity")) or 90
+    return math.floor(opacity * 255 / 100)
+end
+
 -- magazine fill fraction 0..1, or nil if it cannot be read
 local function mag_fill(id)
     if not (magazines and magazines.get_mag_data) then return nil end
@@ -198,6 +221,73 @@ local function make_gauge(ico)
     g:SetTextureColor(GetARGB(alpha, 255, 255, 255))
     g:Show(true)
     return g
+end
+
+-- build the cancel "X" as a centred child of a cell's icon, hidden until hovered
+local function make_cross(ico)
+    if not ico then return end
+    local xml = get_xml()
+    if not xml then return end
+
+    local cr = xml:InitStatic("mag_cross", ico)
+    if not cr then return end
+    cr:InitTexture("ui\\load_cross\\cross")
+
+    local ico_w = ico:GetWidth()
+    local ico_h = ico:GetHeight()
+
+    local max_size = tonumber(cfg("spinner_size")) or 24
+    local sz
+    if tonumber(cfg("spinner_scale")) == 2 then
+        sz = math.min(ico_w, ico_h) * 0.5
+        sz = math.max(sz, 16)
+        sz = math.min(sz, max_size)
+    else
+        sz = math.min(max_size, math.min(ico_w, ico_h))
+    end
+    sz = sz * 0.62
+
+    local cw = sz * aspect_correction()
+    cr:SetWndSize(vector2():set(cw, sz))
+    cr:SetWndPos(vector2():set((ico_w - cw) / 2, (ico_h - sz) / 2))
+    cr:SetStretchTexture(true)
+    -- baked cream colour: tint white to keep it
+    cr:SetTextureColor(GetARGB(spinner_alpha(), 255, 255, 255))
+    cr:Show(false)
+    return cr
+end
+
+-- hover transition: fade spinner/gauge between white and red, fade the cancel X in/out
+local HOVER_FADE_MS = 300
+local hover_fade_prev_tg = nil
+
+local function smooth(p)
+    if p < 0 then p = 0 elseif p > 1 then p = 1 end
+    return p * p * (3 - 2 * p)
+end
+
+-- move a 0..1 fade toward target by the frame delta
+local function step_hover(cur, target, dt)
+    local d = dt / HOVER_FADE_MS
+    if cur < target then return math.min(target, cur + d) end
+    if cur > target then return math.max(target, cur - d) end
+    return cur
+end
+
+-- paint a cell's overlays for hover fade h (0 white/hidden X, 1 red/full X)
+local function apply_hover_fade(ci, h)
+    local e = smooth(h)
+    local g = math.floor(255 * (1 - e))   -- white to red: drop green/blue
+    if ci.__mag_spinner then ci.__mag_spinner:SetTextureColor(GetARGB(spinner_alpha(), 255, g, g)) end
+    if ci.__mag_gauge then ci.__mag_gauge:SetTextureColor(GetARGB(gauge_alpha(), 255, g, g)) end
+    if ci.__mag_cross then
+        if e <= 0 then
+            ci.__mag_cross:Show(false)
+        else
+            ci.__mag_cross:Show(true)
+            ci.__mag_cross:SetTextureColor(GetARGB(math.floor(spinner_alpha() * e), 255, 255, 255))
+        end
+    end
 end
 
 -- darkened icon channel value (0-255), or nil if dimming is off
@@ -471,9 +561,15 @@ local function spinner_anim_tick(m)
     if not next(active) then return end
     local spin_on = cfg("spinner_enable") ~= false
     local g_on = gauge_on()
-    if not spin_on and not g_on then return end
+    local cancel = cancel_on()
+    if not spin_on and not g_on and not cancel then return end
     local meta = style_meta(resolve_style())
-    local f = atlas_frame(meta)
+    local f_load = atlas_frame(meta, 1)
+    local f_unload = atlas_frame(meta, UNLOAD_SPEED_MULT)
+    local tg = time_global()
+    local dt = hover_fade_prev_tg and (tg - hover_fade_prev_tg) or 16
+    hover_fade_prev_tg = tg
+    if dt < 0 then dt = 0 elseif dt > 100 then dt = 100 end
     for cc_id in pairs(watched_bags) do
         local cc = m.CC[cc_id]
         if cc and cc.cell then
@@ -482,10 +578,21 @@ local function spinner_anim_tick(m)
                 if ci and ci.ico and ci.ID then
                     local id = tonumber(ci.ID)
                     if id and active[id] then
-                        if ci.__mag_spinner then set_frame(ci.__mag_spinner, meta, f) end
+                        if ci.__mag_spinner then set_frame(ci.__mag_spinner, meta, unloading[id] and f_unload or f_load) end
                         if ci.__mag_gauge then
                             local pct = mag_fill(id)
                             if pct then set_frame(ci.__mag_gauge, gauge_meta, gauge_frame(pct)) end
+                        end
+                        if cancel then
+                            if not ci.__mag_cross then ci.__mag_cross = make_cross(ci.ico) end
+                            local target = ci.ico:IsCursorOverWindow() and 1 or 0
+                            local h = step_hover(hover_fade[id] or 0, target, dt)
+                            hover_fade[id] = h
+                            apply_hover_fade(ci, h)
+                        elseif ci.__mag_cross then
+                            ci.__mag_cross:Show(false)
+                            ci.__mag_cross = nil
+                            hover_fade[id] = nil
                         end
                     end
                 end
@@ -495,18 +602,21 @@ local function spinner_anim_tick(m)
 end
 
 -- public API
-function begin(id)
+function begin(id, is_unload)
     if not id then return end
     -- active gates the spinner, gauge, source-box flash, mag flash and the field
     -- HUD, so keep it populated if any of those is on
-    if cfg("spinner_enable") == false and cfg("box_flash_enable") == false and not mag_flash_on() and not gauge_on() and cfg("field_load_enable") == false then return end
+    if cfg("spinner_enable") == false and cfg("box_flash_enable") == false and not mag_flash_on() and not gauge_on() and cfg("field_load_enable") == false and not cancel_on() then return end
     if not next(active) then flash_start = time_global() end
     active[id] = true
+    unloading[id] = is_unload and true or nil
 end
 
 function finish(id)
     if not id or not active[id] then return end
     active[id] = nil
+    hover_fade[id] = nil
+    unloading[id] = nil
     if mag_flash_on() then
         mag_release[id] = { start = time_global(), from = flash_last, from_c = dim_channel() or 255 }
     end
@@ -526,6 +636,7 @@ local function clear_cell_overlays()
                 if ci then
                     if ci.__mag_spinner then ci.__mag_spinner:Show(false) ci.__mag_spinner = nil end
                     if ci.__mag_gauge then ci.__mag_gauge:Show(false) ci.__mag_gauge = nil end
+                    if ci.__mag_cross then ci.__mag_cross:Show(false) ci.__mag_cross = nil end
                     local id = ci.ID and tonumber(ci.ID)
                     if ci.ico and not (mflash and id and mag_release[id]) then
                         ci.ico:SetTextureColor(WHITE)
@@ -547,6 +658,8 @@ function clear_all()
         end
     end
     active = {}
+    hover_fade = {}
+    unloading = {}
     if cfg("box_flash_enable") ~= false then begin_box_release() end
     clear_cell_overlays()
 end
@@ -600,7 +713,8 @@ function utils_ui.UICellContainer:Update(item_info, no_info, hide)
     if watched_bags[self.ID] and (next(active) or self.__mag_spin_dirty) then
       local spin_on = cfg("spinner_enable") ~= false
       local g_on = gauge_on()
-      if spin_on or g_on then
+      local cancel = cancel_on()
+      if spin_on or g_on or cancel then
         local dim = dim_color()
         local mflash = mag_flash_on()
         local still = false
@@ -636,7 +750,7 @@ function utils_ui.UICellContainer:Update(item_info, no_info, hide)
                         ci.__mag_gauge = nil
                     end
                     still = true
-                elseif ci.__mag_spinner or ci.__mag_gauge then
+                elseif ci.__mag_spinner or ci.__mag_gauge or ci.__mag_cross then
                     -- this cell just stopped loading: drop its overlays and un-tint
                     if ci.__mag_spinner then
                         ci.__mag_spinner:Show(false)
@@ -646,6 +760,12 @@ function utils_ui.UICellContainer:Update(item_info, no_info, hide)
                         ci.__mag_gauge:Show(false)
                         ci.__mag_gauge = nil
                     end
+                    if ci.__mag_cross then
+                        ci.__mag_cross:Show(false)
+                        ci.__mag_cross = nil
+                    end
+                    hover_fade[id] = nil
+                    unloading[id] = nil
                     if not (mflash and mag_release[id]) then ci.ico:SetTextureColor(WHITE) end
                 end
             end
@@ -659,6 +779,24 @@ function utils_ui.UICellContainer:Update(item_info, no_info, hide)
     reapply_box_flash(self)
     reapply_mag_flash(self)
     return result
+end
+
+-- Left-click a loading magazine cell to cancel the load
+local base_OnKeyboard = utils_ui.UICellContainer.OnKeyboard
+function utils_ui.UICellContainer:OnKeyboard(dik, keyboard_action)
+    if dik == DIK_keys.MOUSE_1 and keyboard_action == ui_events.WINDOW_KEY_PRESSED
+       and cancel_on() and watched_bags[self.ID] and next(active)
+       and self.hover and self.hover.idx then
+        local ci = self.cell[self.hover.idx]
+        local id = ci and ci.ID and tonumber(ci.ID)
+        if id and active[id] then
+            if magazines and magazines.do_interrupt_magload then
+                magazines.do_interrupt_magload()
+            end
+            return true
+        end
+    end
+    return base_OnKeyboard(self, dik, keyboard_action)
 end
 
 -- @NOTE: maybe this not needed, idk
@@ -788,7 +926,7 @@ local function field_show(id)
 
     -- the field HUD is its own feature: always show the spinner and gauge
     local meta = style_meta(resolve_style())
-    set_frame(field_spin, meta, atlas_frame(meta))
+    set_frame(field_spin, meta, atlas_frame(meta, unloading[id] and UNLOAD_SPEED_MULT or 1))
     field_spin:Show(true)
 
     local pct = mag_fill(id)

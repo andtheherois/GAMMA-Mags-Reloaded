@@ -56,6 +56,7 @@ local defaults = {
     gauge_enable			= true,
     gauge_gap				= 3,
     gauge_opacity			= 70,
+    cancel_click_enable		= true,
 
     field_load_enable		= true,
     field_hud_text			= true,
@@ -132,6 +133,7 @@ local def_map = {
     gauge_enable			= "spinner",
     gauge_gap				= "spinner",
     gauge_opacity			= "spinner",
+    cancel_click_enable		= "spinner",
 
     field_load_enable		= "field",
     field_hud_text			= "field",
@@ -259,6 +261,7 @@ function on_mcm_load()
             {id = "gauge_enable", type = "check", val = 1, def=true},
             {id = "gauge_gap", type = "track", val = 2, min=0,max=20,step=1, def = 3},
             {id = "gauge_opacity", type = "track", val = 2, min=10,max=100,step=5, def = 70},
+            {id = "cancel_click_enable", type = "check", val = 1, def=true},
         }},
         {id = "field",sh=true,gr={
             {id= "fldtitle",type= "slide",text="ui_mcm_magazines_fldtitle",link= "ui_options_slider_player",size= {512,50},spacing= 20},
@@ -294,6 +297,10 @@ function on_mcm_load()
         }},
         }
     }
+    if magazines_aml_compat_mcm and magazines_aml_compat_mcm.get_mcm_group then
+        local g = magazines_aml_compat_mcm.get_mcm_group()
+        if g then table.insert(op.gr, g) end
+    end
     return op
 end
 

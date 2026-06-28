@@ -150,6 +150,14 @@
         <text>Transparency of the fill gauge ring (10-100%).</text>
     </string>
 
+    <!-- Click to cancel -->
+    <string id="ui_mcm_magazines_spinner_cancel_click_enable">
+        <text>Click Loading Mag to Cancel</text>
+    </string>
+    <string id="ui_mcm_magazines_spinner_cancel_click_enable_desc">
+        <text>Hover a magazine that is loading or unloading to show a cancel cross and turn the spinner and gauge red, then left-click it to stop the load.</text>
+    </string>
+
     <!-- Scale mode list values -->
     <string id="magazines_spinner_spinner_scale_lst_fixed">
         <text>Fixed Size</text>

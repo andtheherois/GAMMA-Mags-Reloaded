@@ -12,8 +12,9 @@
     nothing is registered and loading runs exactly as before.
 --]]
 
-local MCM_PAGE  = "magazines_compat"
-local MCM_GROUP = "main"
+-- shown as a subcategory of the main "Magazines" MCM page
+local MCM_PAGE  = "magazines"
+local MCM_GROUP = "aml_compat"
 local DEFAULTS  = { aml_enable = true }
 
 local function cfg(key)
@@ -49,19 +50,17 @@ local function apply()
     end
 end
 
-function on_mcm_load()
-    -- no AML installed: do not show a compatibility page at all
+-- group definition for the main page to fold in as its "AML Compatibility" subcategory
+function get_mcm_group()
     if not aml_present() then return nil end
-    return { id = MCM_PAGE, gr = {
-        { id = MCM_GROUP, sh = true, gr = {
-            { id = "title", type = "slide", link = "ui_options_slider_player",
-              text = "ui_mcm_magazines_compat_title", size = {512, 50}, spacing = 20 },
-            { id = "aml_desc", type = "desc", text = "ui_mcm_magazines_compat_aml_desc",
-              clr = {255, 200, 200, 200} },
-            -- hint pins the label string id to ui_mcm_magazines_compat_aml_enable
-            { id = "aml_enable", type = "check", val = 1, def = true,
-              hint = "magazines_compat_aml_enable" },
-        }},
+    return { id = MCM_GROUP, sh = true, gr = {
+        { id = "title", type = "slide", link = "ui_options_slider_player",
+          text = "ui_mcm_magazines_compat_title", size = {512, 50}, spacing = 20 },
+        { id = "aml_desc", type = "desc", text = "ui_mcm_magazines_compat_aml_desc",
+          clr = {255, 200, 200, 200} },
+        -- hint pins the label string id to ui_mcm_magazines_compat_aml_enable
+        { id = "aml_enable", type = "check", val = 1, def = true,
+          hint = "magazines_compat_aml_enable" },
     }}
 end
 
