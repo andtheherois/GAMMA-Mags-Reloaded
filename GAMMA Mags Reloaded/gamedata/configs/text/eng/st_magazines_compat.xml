@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="windows-1251" ?>
+<string_table>
+
+	<!-- subcategory label in the Magazines menu sidebar (group id "aml_compat") -->
+	<string id="ui_mcm_menu_aml_compat">
+		<text>AML Compatibility</text>
+	</string>
+	<string id="ui_mcm_magazines_compat_title">
+		<text>AML Compatibility</text>
+	</string>
+	<string id="ui_mcm_magazines_compat_aml_desc">
+		<text
+        >Animated Magazine Loading detected. When enabled, loading and unloading a magazine plays its hand animation instead of the inventory cell spinner. The magazine contents, weapon holstering and cancel behaviour are unchanged. Loading speed follows the animation, not the load-time setting.</text>
+	</string>
+	<string id="ui_mcm_magazines_compat_aml_enable">
+		<text>Enable Animated Magazine Loading</text>
+	</string>
+	<string id="ui_mcm_magazines_compat_aml_enable_desc">
+		<text
+        >Use the Animated Magazine Loading hand animations for round-by-round mag loading and unloading. Turn off to keep the inventory cell spinner.</text>
+	</string>
+
+	<!-- AML animation speed multipliers -->
+	<string id="ui_mcm_magazines_compat_aml_anim_load_speed">
+		<text>AML Load Animation Speed</text>
+	</string>
+	<string id="ui_mcm_magazines_compat_aml_anim_load_speed_desc">
+		<text
+        >Playback speed multiplier for the Animated Magazine Loading load animation. 1.0 is the base speed; higher is faster, lower is slower. Rounds are fed in time with the animation, so this also changes how fast the magazine fills.</text>
+	</string>
+	<string id="ui_mcm_magazines_compat_aml_anim_unload_speed">
+		<text>AML Unload Animation Speed</text>
+	</string>
+	<string id="ui_mcm_magazines_compat_aml_anim_unload_speed_desc">
+		<text
+        >Playback speed multiplier for the Animated Magazine Loading unload animation. 1.0 is the base speed; higher is faster, lower is slower. Rounds are removed in time with the animation, so this also changes how fast the magazine empties.</text>
+	</string>
+
+	<!-- Direct magazine load -->
+	<string id="ui_mcm_magazines_compat_direct_desc">
+		<text
+        >Direct load: press one key with a supported weapon in hand and the inventory closed to top up the best matching magazine straight from your bag. The load then runs on the field HUD like any other out-of-inventory load.</text>
+	</string>
+	<string id="ui_mcm_magazines_compat_direct_enable">
+		<text>Enable Direct Load</text>
+	</string>
+	<string id="ui_mcm_magazines_compat_direct_enable_desc">
+		<text
+        >Allow starting a magazine load from the game world, without opening the inventory.</text>
+	</string>
+	<string id="ui_mcm_magazines_compat_direct_key">
+		<text>Direct Load Key</text>
+	</string>
+	<string id="ui_mcm_magazines_compat_direct_key_desc">
+		<text
+        >Key that starts a direct magazine load while a supported weapon is equipped and the inventory is closed.</text>
+	</string>
+	<string id="ui_mcm_magazines_compat_direct_mode">
+		<text>Direct Load Input Mode</text>
+	</string>
+	<string id="ui_mcm_magazines_compat_direct_mode_desc">
+		<text
+        >How the key triggers: a single press, a double tap, or holding it down.</text>
+	</string>
+	<string id="ui_mcm_magazines_compat_direct_order">
+		<text>Magazine Pick Order</text>
+	</string>
+	<string id="ui_mcm_magazines_compat_direct_order_desc">
+		<text
+        >Which magazine gets topped up first when several fit the weapon. Fullest finishes the closest-to-full mag, emptiest fills the least loaded, marked prefers a marked mag then the fullest.</text>
+	</string>
+
+	<!-- direct load pick-order list entries -->
+	<string id="ui_mcm_lst_dl_order_fullest">
+		<text>Fullest first</text>
+	</string>
+	<string id="ui_mcm_lst_dl_order_emptiest">
+		<text>Emptiest first</text>
+	</string>
+	<string id="ui_mcm_lst_dl_order_marked">
+		<text>Marked first</text>
+	</string>
+
+</string_table>

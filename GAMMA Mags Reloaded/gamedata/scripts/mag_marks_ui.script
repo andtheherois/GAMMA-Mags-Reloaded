@@ -1,0 +1,77 @@
+--[[
+    Magazine mark by Priler (https://github.com/Priler)
+    Submodule: Menu UI
+    t(-_-t)
+
+    Adds a "Mark magazine" right-click entry on magazines.
+    Because the dumb engine right-click menu is a flat list with no nested submenu,
+    the entry opens a second native context list carrying the group
+    choices: FMJ / AP / HP, or Buck / Slug / AP for mag-fed shotguns,
+    plus "Remove magazine mark" when the mag is already marked.
+--]]
+
+local add_functor = custom_functor_autoinject.add_functor
+
+-- One reusable popup. Its owner table receives the chosen action by method name
+-- UICellProperties dispatches owner[func](owner, unpack(params)) on click
+local popup = nil
+local menu_owner = {}
+
+function menu_owner.pick(self, mag_id, mark)
+    mag_marks.set_mark(mag_id, mark)   -- mark nil clears the mark
+    if magazines and magazines.inventory_refresh then
+        magazines.inventory_refresh()
+    end
+end
+
+local function show_popup(action_list, name_list, params_list)
+    if not popup then
+        popup = utils_ui.UICellProperties(menu_owner)
+    end
+    popup:Reset(nil, action_list, name_list, params_list)
+    -- popup:Reset(nil, action_list, name_list, params_list)
+end
+
+local function open_mark_menu(mag)
+    if not mag then return end
+    local id = mag:id()
+
+    local choices = mag_marks.allowed_marks_for(mag)
+    local action_list, name_list, params_list = {}, {}, {}
+    for i = 1, #choices do
+        action_list[i] = "pick"
+        name_list[i]   = choices[i].label
+        params_list[i] = { id, choices[i].key }
+    end
+
+    if mag_marks.is_marked(id) then
+        local n = #name_list + 1
+        action_list[n] = "pick"
+        name_list[n]   = "st_mag_mark_remove"
+        params_list[n] = { id }            -- no group passed = remove
+    end
+
+    -- open next frame so the originating right-click menu fully closes first,
+    -- otherwise the two context windows fight over the dialog stack
+    CreateTimeEvent("mag_mark", "open_menu", 0, function()
+        show_popup(action_list, name_list, params_list)
+        return true
+    end)
+end
+
+-- right-click functor --
+local function cond_show(obj, bag, mode)
+    return obj and magazine_binder.is_magazine(obj) and true or false
+end
+
+local function name_func(obj, bag, mode)
+    return "st_mag_mark_menu"
+end
+
+local function action_func(obj, bag, mode)
+    open_mark_menu(obj)
+end
+
+function on_game_start()
+    add_functor("mag_mark", cond_show, name_func, cond_show, action_func)
+end

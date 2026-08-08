@@ -1,0 +1,274 @@
+-- mag_qaw_field_load_patch.script
+-- QAW compatibility patch for Mags Reloaded field mag loading by Priler.
+-- t(-_-t)
+--
+-- Adds a "load selected ammo into a magazine" flow to the Quick Action Wheel:
+-- Patches run once after QAW exposes its option classes through
+-- haru_quick_action_wheel_mcm.TAB_MANAGER
+
+local installed = false
+local attempts = 0
+local MAX_ATTEMPTS = 100 -- give up after ~10s if QAW never loads
+
+-- inverted caliber set for the mag currently being reloaded, cached by section
+local cached_sec = nil
+local cached_set = nil
+local function caliber_set_for(mag)
+	local sec = mag:section()
+	if cached_sec ~= sec then
+		cached_sec = sec
+		local ok, list = pcall(magazine_binder.get_magazine_caliber, mag)
+		cached_set = (ok and list) and invert_table(list) or {}
+	end
+	return cached_set
+end
+
+-- true when the actor carries at least one ammo box of a caliber this mag takes
+local function has_carried_ammo(mag)
+	for sec in pairs(caliber_set_for(mag)) do
+		if db.actor:object(sec) then
+			return true
+		end
+	end
+	return false
+end
+
+local function mag_is_full(obj)
+	local cap = SYS_GetParam(2, obj:section(), "max_mag_size") or 30
+	local md = magazines and magazines.get_mag_data and magazines.get_mag_data(obj:id())
+	local loaded = (md and type(md.loaded) == "table") and #md.loaded or 0
+	return loaded >= cap
+end
+
+-- every magazine carried in the loadout pouch
+local function all_carried_mags()
+	local t = {}
+	local carried = {}
+	magazine_binder.get_carried_mags(carried)
+	for id, data in pairs(carried) do
+		local obj = level.object_by_id(id)
+		local p = obj and obj:parent()
+		if p and p:id() == AC_ID then
+			t[#t + 1] = { obj = obj, sec = data.section }
+		end
+	end
+	return t
+end
+
+local function install(qaw, manager)
+	local classes = manager.classes
+	local mag_cls = classes and classes.QMagazineWheelOption
+	local ammo_cls = classes and classes.QAmmoWheelOption
+	local handlers = manager.dynamic_tab_handlers
+	local ammo_handler = handlers and handlers.ammo
+
+	if not (mag_cls and ammo_cls and ammo_handler) then
+		return false
+	end
+
+	-- arm a listed mag for a field load and jump to its ammo picker
+	local function arm_mag_for_load(self)
+		local ammo_tab = manager.tab_by_handler and manager.tab_by_handler.ammo
+		local obj = self:GetObject()
+		if not (ammo_tab and obj) then
+			return false
+		end
+		if not (mag_is_full(obj) or not has_carried_ammo(obj)) then
+			manager.mag_to_reload = obj
+			manager:SetCurrentTab(ammo_tab, true)
+		end
+		return true
+	end
+
+	-- RIGHT-click a magazine: always arm it for a field load
+	local orig_mag_onrightclick = mag_cls.OnRightClick
+	mag_cls.OnRightClick = function(self)
+		if arm_mag_for_load(self) then
+			return
+		end
+		if orig_mag_onrightclick then
+			return orig_mag_onrightclick(self)
+		end
+	end
+
+	-- LEFT-click a magazine: in the ammo-wheel path (or when the mag fits the drawn
+	-- weapon) keep the stock behaviour of loading it into the gun
+	local orig_mag_onclick = mag_cls.OnClick
+	mag_cls.OnClick = function(self)
+		if not manager.opened_via_ammo_wheel then
+			local obj = self:GetObject()
+			-- CanLoadInActiveWeapon guarded so a QAW build lacking it just field-loads on left-click instead of erroring
+			local fits_weapon = obj and mag_cls.CanLoadInActiveWeapon and self:CanLoadInActiveWeapon(obj)
+			if not fits_weapon then
+				arm_mag_for_load(self)
+				return
+			end
+		end
+		if orig_mag_onclick then
+			return orig_mag_onclick(self)
+		end
+	end
+
+	-- the normal open lists every mag
+	local orig_mag_update = mag_cls.Update
+	mag_cls.Update = function(self)
+		if manager.opened_via_ammo_wheel then
+			if orig_mag_update then
+				return orig_mag_update(self)
+			end
+			return
+		end
+		local obj = self:GetObject()
+		self:GetCellItem():Colorize(obj and "def" or "hide")
+	end
+
+	-- ammo tab source: while a mag is armed, list the ammo it accepts and the
+	-- actor carries
+	local orig_get_item_table = ammo_handler.GetItemTable
+	ammo_handler.GetItemTable = function(self)
+		local mag = manager.mag_to_reload
+		if not mag then
+			-- ammo-wheel replacement path keeps the stock weapon-compatible list
+			if manager.opened_via_ammo_wheel then
+				return orig_get_item_table(self)
+			end
+			return all_carried_mags()
+		end
+		local t = {}
+		for sec in pairs(caliber_set_for(mag)) do
+			local obj = db.actor:object(sec)
+			if obj then
+				t[#t + 1] = { obj = obj, sec = sec }
+			end
+		end
+		return t
+	end
+
+	-- ammo option can-load state while a mag is armed: loadable if the mag takes
+	-- this caliber (weapon ammo-type rules do not apply to a mag reload)
+	local orig_update_can_load = ammo_cls.UpdateCanLoad
+	ammo_cls.UpdateCanLoad = function(self)
+		local mag = manager.mag_to_reload
+		if not mag then
+			return orig_update_can_load(self)
+		end
+		if caliber_set_for(mag)[self.section] then
+			self.can_load_in_weapon = true
+			self.ammo_type = self.section
+			self.is_loaded = false
+		else
+			self:ResetCanLoad()
+		end
+	end
+
+	-- LEFT-click an ammo type while a mag is armed
+	local orig_ammo_onclick = ammo_cls.OnClick
+	ammo_cls.OnClick = function(self)
+		local mag = manager.mag_to_reload
+		if not mag then
+			return orig_ammo_onclick(self)
+		end
+		if not caliber_set_for(mag)[self.section] then
+			return
+		end
+		local ammo = db.actor:object(self.section)
+		if not ammo then
+			return
+		end
+
+		manager.mag_to_reload = nil
+		if qaw.GUI and qaw.GUI.Close then
+			qaw.GUI:Close()
+		end
+
+		CreateTimeEvent(script_name(), "mags_qaw_field_load_" .. self.section, 0.1, function()
+			if magazines and magazines.begin_mag_load then
+				magazines.begin_mag_load(mag, ammo)
+			end
+			return true
+		end)
+	end
+
+	-- RIGHT-click an ammo type while a mag is armed: back to the magazine list
+	local orig_ammo_onrightclick = ammo_cls.OnRightClick
+	ammo_cls.OnRightClick = function(self)
+		if manager.mag_to_reload then
+			local ammo_tab = manager.tab_by_handler and manager.tab_by_handler.ammo
+			manager.mag_to_reload = nil
+			if ammo_tab then
+				manager:SetCurrentTab(ammo_tab, true)
+			end
+			return
+		end
+		if orig_ammo_onrightclick then
+			return orig_ammo_onrightclick(self)
+		end
+	end
+
+	-- drop a stale armed mag when leaving the ammo tab
+	local orig_set_current_tab = manager.SetCurrentTab
+	manager.SetCurrentTab = function(self, tab, temp)
+		if self.mag_to_reload and self.dynamic_tabs[tab] ~= "ammo" then
+			self.mag_to_reload = nil
+		end
+		return orig_set_current_tab(self, tab, temp)
+	end
+
+	-- record how the wheel was opened
+	local orig_open = qaw.open_radial_menu
+	if orig_open then
+		qaw.open_radial_menu = function(...)
+			manager.mag_to_reload = nil
+			manager.opened_via_ammo_wheel = manager.ammo_wheel_pending or false
+			manager.ammo_wheel_pending = false
+			return orig_open(...)
+		end
+	end
+
+	-- mark the ammo-wheel replacement path so its ammo tab keeps the stock weapon-compatible mag list
+	local orig_start_ammo_wheel = qaw.start_ammo_wheel_override
+	if orig_start_ammo_wheel then
+		qaw.start_ammo_wheel_override = function(...)
+			manager.ammo_wheel_pending = true
+			local r = orig_start_ammo_wheel(...)
+			manager.ammo_wheel_pending = false
+			return r
+		end
+	end
+
+	return true
+end
+
+local function install_when_ready()
+	if installed then
+		return true
+	end
+	attempts = attempts + 1
+
+	local qaw = haru_quick_action_wheel_mcm
+	local manager = qaw and qaw.TAB_MANAGER
+	if not (manager and manager.classes and magazines and magazine_binder) then
+		if attempts >= MAX_ATTEMPTS then
+			printf("[MAGS QAW FIELD LOAD] QAW not found after %s attempts -- giving up t(-_-t)", tostring(attempts))
+			return true
+		end
+		return false
+	end
+
+	if manager.__mag_qaw_field_load_installed then
+		installed = true
+		return true
+	end
+
+	if install(qaw, manager) then
+		manager.__mag_qaw_field_load_installed = true
+		installed = true
+		printf("[MAGS QAW FIELD LOAD] installed magazine field-load flow into QAW")
+		return true
+	end
+	return false
+end
+
+function on_game_start()
+	CreateTimeEvent("mag_qaw_field_load_patch", "install", 0.1, install_when_ready)
+end

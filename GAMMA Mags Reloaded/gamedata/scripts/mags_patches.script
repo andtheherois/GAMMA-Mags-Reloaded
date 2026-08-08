@@ -196,6 +196,18 @@ local clr_w  = utils_xml.get_color("pda_white")
 local clr_1  = utils_xml.get_color("ui_gray_2")
 local clr_2  = utils_xml.get_color("ui_gray_1")
 
+-- per ammo-group color + label for the "Marked as" tooltip line
+local mark_tag_clr = {
+	fmj  = clr_g,   -- green
+	ap   = clr_b,   -- cyan
+	hp   = clr_o,   -- orange
+	buck = clr_r,   -- red
+	slug = clr_y,   -- yellow
+}
+local mark_tag_txt = {
+	fmj = "FMJ", ap = "AP", hp = "HP", buck = "BUCK", slug = "SLUG",
+}
+
 -- mag in, mag out
 original_build_desc_header = ui_item.build_desc_header
 function ui_item.build_desc_header(obj, sec, str)
@@ -321,8 +333,15 @@ function ui_item.build_desc_footer(obj, sec, str)
 		end
 
 		-- mag size
-		_str = _str .. "\\n " .. clr_g .. gc("st_dot") .. " " .. clr_w .. gc('st_mag_size') .. " " .. gc('st_mag_size_'..(SYS_GetParam(0, sec, "mag_size") or "small")) .. "\\n \\n"
-	
+		_str = _str .. "\\n " .. clr_g .. gc("st_dot") .. " " .. clr_w .. gc('st_mag_size') .. " " .. gc('st_mag_size_'..(SYS_GetParam(0, sec, "mag_size") or "small")) .. "\\n"
+
+		-- marked ammo group (the tag part is colored)
+		local mark = mag_marks and mag_marks.get_mark(obj_id)
+		if mark and mark_tag_txt[mark] then
+			_str = _str .. " " .. clr_g .. gc("st_dot") .. " " .. clr_w .. gc("st_mag_marked_as") .. " " .. (mark_tag_clr[mark] or clr_w) .. mark_tag_txt[mark] .. "\\n"
+		end
+		_str = _str .. " \\n"
+
 		local mag_capacity = SYS_GetParam(2, sec, "max_mag_size")	
 		local clr = utils_xml.get_color_con(math_floor(100 * #mag_data.loaded/mag_capacity))
 

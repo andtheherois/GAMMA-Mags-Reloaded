@@ -727,8 +727,16 @@ end
 
 local bags = {actor_bag = true,actor_trade_bag= true} --player inv in normal/looting and in the merchant UI.
 ready_color = GetARGB(100, 255, 159, 82)
+-- per ammo-group highlight colors for marked mags, filled from MCM (mark key -> ARGB)
+mark_colors = {}
 function check_ready(cell)
         if bags[cell.container.ID] then
+			-- a marked mag shows its group color regardless of loadout state
+			-- gate on is_magazine: a weapon holding a marked mag carries the mark too
+			local mark = mag_marks and mag_marks.get_mark(cell.ID)
+			if mark and mark_colors[mark] and is_magazine(cell.section) then
+				return mark_colors[mark]
+			end
 			return carried_mags[cell.ID] and ready_color --cell.ID and cell.sec are the object id and section
 		end
 end

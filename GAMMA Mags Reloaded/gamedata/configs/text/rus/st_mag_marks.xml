@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="windows-1251" ?>
+<string_table>
+
+	<!-- right-click menu + mark choices -->
+	<string id="st_mag_mark_menu">
+		<text>Отметить магазин</text>
+	</string>
+	<string id="st_mag_mark_fmj">
+		<text>Отметить как FMJ</text>
+	</string>
+	<string id="st_mag_mark_ap">
+		<text>Отметить как AP</text>
+	</string>
+	<string id="st_mag_mark_hp">
+		<text>Отметить как HP</text>
+	</string>
+	<string id="st_mag_mark_buck">
+		<text>Отметить как картечь</text>
+	</string>
+	<string id="st_mag_mark_slug">
+		<text>Отметить как пулю</text>
+	</string>
+	<string id="st_mag_mark_remove">
+		<text>Снять отметку с магазина</text>
+	</string>
+
+	<!-- tooltip line under "Magazine size" -->
+	<string id="st_mag_marked_as">
+		<text>Отмечен как</text>
+	</string>
+
+	<!-- magazine detail tooltips (source: st_items_magazines.xml) -->
+	<string id="st_mag_capacity">
+		<text>Ёмкость магазина:</text>
+	</string>
+	<string id="st_mag_ammo_top_round">
+		<text>Патрон сверху:</text>
+	</string>
+
+</string_table>

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="windows-1251"?>
+<string_table>
+
+	<string id="st_speed_shotgun">
+		<text>Патронташ для дробовика</text>
+	</string>
+	<string id="st_speed_shotgun_desc">
+		<text>Патронташ (сайд-сэдл) под ружейные патроны. Ускоряет перезарядку оружия, не использующего магазины.</text>
+	</string>
+
+	<string id="st_speed_rifle">
+		<text>Винтовочный патронташ</text>
+	</string>
+	<string id="st_speed_rifle_desc">
+		<text>Патронташ (сайд-сэдл) под винтовочные патроны. Ускоряет перезарядку оружия, не использующего магазины.</text>
+	</string>
+
+	<string id="st_speed_loader_attached">
+		<text>Патронташ установлен</text>
+	</string>
+	<string id="st_install_speed_loader">
+		<text>установить > патронташ</text>
+	</string>
+	<string id="st_remove_speed_loader">
+		<text>снять патронташ</text>
+	</string>
+
+	<string id="st_pouch_in">
+		<text>Установлен подсумок</text>
+	</string>
+	<string id="st_install_pouch">
+		<text>установить > подсумок</text>
+	</string>
+	<string id="st_remove_pouch">
+		<text>снять подсумок</text>
+	</string>
+
+	<string id="st_jam_chance_increase">
+		<text>Увеличение шанса заклинивания:</text>
+	</string>
+	<string id="st_mag_compatible_mags">
+		<text>Совместимые магазины</text>
+	</string>
+
+</string_table>

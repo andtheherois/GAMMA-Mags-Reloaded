@@ -1,0 +1,202 @@
+--[[
+    Magazine mark by Priler (https://github.com/Priler)
+    Submodule: Mark function (save persistent)
+    t(-_-t)
+
+    Lets the player tag a magazine with an ammo group.
+    The mark drives the inventory highlight color and the hover load hotkey.
+
+    The mark is stored inside the magazine's mag_data (field "mark"), so it rides
+    along with the rounds: loading the mag into a weapon and ejecting it later
+    keeps the mark, and it persists through the existing save_state.
+--]]
+
+local is_magazine          = magazine_binder.is_magazine
+local get_magazine_caliber = magazine_binder.get_magazine_caliber
+local get_data             = magazine_binder.get_data
+local set_data             = magazine_binder.set_data
+
+-- menu label per mark key (string ids defined in st_mag_marks.xml)
+local LABELS = {
+    fmj  = "st_mag_mark_fmj",
+    ap   = "st_mag_mark_ap",
+    hp   = "st_mag_mark_hp",
+    buck = "st_mag_mark_buck",
+    slug = "st_mag_mark_slug",
+}
+
+-- ordered choice sets shown in the mark menu
+local GENERAL_MARKS = { "fmj", "ap", "hp" }
+local SHOTGUN_MARKS = { "buck", "slug", "ap" }
+
+
+-- mark storage --
+function get_mark(id)
+    if not id then return nil end
+    local d = get_data(id)
+    return d and d.mark or nil
+end
+
+function is_marked(id)
+    return get_mark(id) ~= nil
+end
+
+-- set mark = nil to clear. Creates a minimal data entry for a never-loaded mag
+-- caller refreshes the inventory if it is open
+function set_mark(id, mark)
+    if not id then return end
+    local d = get_data(id)
+    if not d then
+        local obj = level.object_by_id(id)
+        if not obj then return end
+        d = { section = obj:section(), loaded = {}, is_weapon = false }
+    end
+    d.mark = mark
+    set_data(id, d)
+end
+
+
+-- mag classification --
+
+-- a mag is "shotgun" when any round it accepts classifies as buck or slug
+local shotgun_cache = {}
+function is_shotgun_mag(mag)
+    if not mag then return false end
+    local sec = mag:section()
+    local cached = shotgun_cache[sec]
+    if cached ~= nil then return cached end
+
+    local result = false
+    local ammo_list = get_magazine_caliber(mag)
+    if ammo_list then
+        for i = 1, #ammo_list do
+            local g = priler_ammo_classifier.classify(ammo_list[i])
+            if g == "buck" or g == "slug" then
+                result = true
+                break
+            end
+        end
+    end
+    shotgun_cache[sec] = result
+    return result
+end
+
+-- a mag is "sniper" when any round it accepts is a dedicated sniper caliber
+local sniper_cache = {}
+function is_sniper_mag(mag)
+    if not mag then return false end
+    local sec = mag:section()
+    local cached = sniper_cache[sec]
+    if cached ~= nil then return cached end
+
+    local result = false
+    local ammo_list = get_magazine_caliber(mag)
+    if ammo_list then
+        for i = 1, #ammo_list do
+            if priler_ammo_classifier.is_sniper_caliber(ammo_list[i]) then
+                result = true
+                break
+            end
+        end
+    end
+    sniper_cache[sec] = result
+    return result
+end
+
+-- ordered list of { key = <mark>, label = <string id> } valid for this mag
+function allowed_marks_for(mag)
+    local set = is_shotgun_mag(mag) and SHOTGUN_MARKS or GENERAL_MARKS
+    local out = {}
+    for i = 1, #set do
+        out[i] = { key = set[i], label = LABELS[set[i]] }
+    end
+    return out
+end
+
+
+-- ammo selection --
+
+-- Most-plentiful matching ammo for a marked mag
+function find_best_ammo(mag, mark)
+    if not (mag and mark) then return nil end
+
+    local compatible = {}
+    local ammo_list = get_magazine_caliber(mag)
+    if not ammo_list then return nil end
+    for i = 1, #ammo_list do compatible[ammo_list[i]] = true end
+
+    local totals = {}    -- section -> round count
+    local sample = {}    -- section -> one ammo object
+    db.actor:iterate_inventory(function(owner, item)
+        if not IsAmmo(item) then return end
+        local sec = item:section()
+        if not compatible[sec] then return end
+        if not priler_ammo_classifier.in_group(sec, mark) then return end
+        local n = item:ammo_get_count() or 0
+        totals[sec] = (totals[sec] or 0) + n
+        sample[sec] = sample[sec] or item
+    end)
+
+    local best_sec, best_n = nil, 0
+    for sec, n in pairs(totals) do
+        if n > best_n then best_sec, best_n = sec, n end
+    end
+    if not best_sec then return nil end
+    return sample[best_sec]
+end
+
+-- the mark groups; exotic rounds (tracer/fire/sub/enhanced) only load as a last
+-- resort so an untagged mag never defaults to them
+local CORE_GROUPS = { fmj = true, ap = true, hp = true, buck = true, slug = true }
+
+-- Auto-pick ammo for an UNTAGGED mag (hover-load with no mark)
+function find_auto_ammo(mag)
+    if not mag then return nil end
+
+    local compatible = {}
+    local ammo_list = get_magazine_caliber(mag)
+    if not ammo_list then return nil end
+    for i = 1, #ammo_list do compatible[ammo_list[i]] = true end
+
+    local totals, sample, grp = {}, {}, {}   -- section -> count / one obj / group
+    db.actor:iterate_inventory(function(owner, item)
+        if not IsAmmo(item) then return end
+        local sec = item:section()
+        if not compatible[sec] then return end
+        totals[sec] = (totals[sec] or 0) + (item:ammo_get_count() or 0)
+        sample[sec] = sample[sec] or item
+        grp[sec]    = grp[sec] or priler_ammo_classifier.classify(sec)
+    end)
+
+    -- most-plentiful section whose group passes the filter (nil filter = any)
+    local function best(filter)
+        local bs, bn = nil, 0
+        for sec, n in pairs(totals) do
+            if n > bn and (not filter or filter(grp[sec])) then bs, bn = sec, n end
+        end
+        return bs and sample[bs] or nil
+    end
+
+    -- partially loaded: lock to the group already inside; never mix
+    local d = get_data(mag:id())
+    if d and d.loaded and #d.loaded > 0 then
+        local dom = magazines and magazines.get_dominant_round
+            and magazines.get_dominant_round(d.loaded)
+        local g = dom and priler_ammo_classifier.classify(dom)
+        if g and CORE_GROUPS[g] then
+            return best(function(x) return x == g end)
+        end
+    end
+
+    -- empty mag: MCM preference for the class ("most" = ignore type)
+    local key = "untagged_pref_general"
+    if is_shotgun_mag(mag) then key = "untagged_pref_shotgun"
+    elseif is_sniper_mag(mag) then key = "untagged_pref_sniper" end
+    local pref = magazines_mcm and magazines_mcm.get_config and magazines_mcm.get_config(key)
+    if pref and pref ~= "most" and CORE_GROUPS[pref] then
+        local pick = best(function(x) return x == pref end)
+        if pick then return pick end
+    end
+
+    return best(function(x) return CORE_GROUPS[x] end) or best(nil)
+end

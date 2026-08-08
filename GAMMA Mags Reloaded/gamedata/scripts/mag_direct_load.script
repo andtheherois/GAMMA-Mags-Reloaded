@@ -1,0 +1,157 @@
+--[[
+    Direct magazine load by Priler (https://github.com/Priler)
+    Ported from the Animated Magazine Loading direct-load key feature.
+
+    Press one key with a supported weapon in hand and the inventory closed to top
+    up the best matching magazine straight from the bag.
+--]]
+
+local is_supported_weapon = magazine_binder.is_supported_weapon
+local get_weapon_base_type = magazine_binder.get_weapon_base_type
+local get_mags_for_basetype = magazine_binder.get_mags_for_basetype
+local is_carried_mag = magazine_binder.is_carried_mag
+
+local function cfg(key)
+	if ui_mcm then
+		return ui_mcm.get("magazines/aml_compat/" .. key)
+	end
+	return nil
+end
+
+local function busy()
+	return magazines and magazines.action_in_progress and magazines.action_in_progress()
+end
+
+-- pick score for a mag with `missing` empty slots under the chosen order:
+-- "emptiest" wants the most missing, everything else wants the fewest (fullest)
+local function score_of(missing, order)
+	if order == "emptiest" then
+		return missing
+	end
+	return -missing
+end
+
+-- candidate beats the current best under `order`
+local function beats(cand_marked, cand_score, cur_marked, cur_score, order)
+	if order == "marked" and cand_marked ~= cur_marked then
+		return cand_marked -- marked mags always outrank unmarked
+	end
+	return cand_score > cur_score
+end
+
+-- best carried, not-full magazine that fits the equipped weapon, or nil
+local function pick_mag(weapon, order)
+	local base_type = get_weapon_base_type(weapon)
+	if not base_type then
+		return nil
+	end
+	local allowed = get_mags_for_basetype(base_type)
+	if not allowed or #allowed == 0 then
+		return nil
+	end
+
+	local allow = {}
+	for i = 1, #allowed do
+		allow[allowed[i]] = true
+	end
+
+	local best, best_score, best_marked
+	db.actor:iterate_inventory(function(_, item)
+		local sec = item:section()
+		if not (allow[sec] and is_carried_mag(item:id())) then
+			return
+		end
+
+		local cap = SYS_GetParam(2, sec, "max_mag_size") or 30
+		local md = magazines.get_mag_data(item:id())
+		local loaded = (md and type(md.loaded) == "table") and #md.loaded or 0
+		if loaded >= cap then
+			return
+		end
+
+		local score = score_of(cap - loaded, order)
+		local marked = (mag_marks and mag_marks.get_mark and mag_marks.get_mark(item:id())) and true or false
+		if not best or beats(marked, score, best_marked, best_score, order) then
+			best, best_score, best_marked = item, score, marked
+		end
+	end)
+
+	return best
+end
+
+-- start a direct load: best mag for the equipped weapon, mark-aware ammo, begin
+function do_direct_mag_load()
+	local actor = db.actor
+	if not actor or busy() then
+		return
+	end
+
+	-- out-of-menu path only
+	local m = GetActorMenu()
+	if m and m:IsShown() then
+		return
+	end
+
+	local weapon = actor:active_item()
+	if not weapon or not IsWeapon(weapon) or not is_supported_weapon(weapon) then
+		return
+	end
+	if weapon:weapon_in_grenade_mode() then
+		return
+	end
+
+	local mag = pick_mag(weapon, cfg("direct_load_order") or "fullest")
+	if not mag then
+		return
+	end
+
+	-- mark-aware ammo: honour the mag's mark, else fall back to the auto preference
+	local mark = mag_marks and mag_marks.get_mark and mag_marks.get_mark(mag:id())
+	local ammo
+	if mark then
+		ammo = mag_marks.find_best_ammo(mag, mark)
+	else
+		ammo = mag_marks.find_auto_ammo(mag)
+	end
+	if not ammo then
+		return
+	end
+
+	magazines.begin_mag_load(mag, ammo)
+end
+
+-- input dispatch, mirrors the press / double-tap / hold modes AML exposed
+local function enabled_for(key)
+	return db.actor and ui_mcm and cfg("direct_load_enable") ~= false and key == cfg("key_direct_load")
+end
+
+local function on_key_press(key, bind, dis, flags)
+	if not enabled_for(key) then
+		return
+	end
+	local mode = cfg("direct_load_input_mode") or 0
+	if mode == 0 then
+		ui_mcm.simple_press("magazines_direct", key, do_direct_mag_load)
+	elseif mode == 1 then
+		if ui_mcm.double_tap("magazines_direct", key) then
+			do_direct_mag_load()
+		end
+	end
+end
+
+local function on_key_hold(key)
+	if not enabled_for(key) then
+		return
+	end
+	if (cfg("direct_load_input_mode") or 0) ~= 2 then
+		return
+	end
+	if ui_mcm.key_hold("magazines_direct", key) then
+		do_direct_mag_load()
+	end
+end
+
+function on_game_start()
+	RegisterScriptCallback("on_before_key_press", on_key_press)
+	RegisterScriptCallback("on_key_hold", on_key_hold)
+end

@@ -1,0 +1,147 @@
+--[[
+    Field mag-load cancel diagnostics script.
+
+    Instruments every path that can end a running field load so a spontaneous,
+    unprompted cancel can be traced to its cause.
+
+    Off by default.
+--]]
+
+local PREFIX = "[MAG DIAG]"
+
+local armed_reason = nil
+local armed_tg = 0
+local ARM_TTL = 150
+
+function is_enabled()
+	if magazines_mcm and magazines_mcm.get_config then
+		local v = magazines_mcm.get_config("field_diag_enable")
+		if v ~= nil then
+			return v
+		end
+	end
+
+	-- MCM not up yet
+	return false
+end
+
+-- arm the reason for the cancel that is about to happen
+function arm(reason)
+	if not is_enabled() then
+		return
+	end
+	armed_reason = reason
+	armed_tg = time_global()
+end
+
+local function move_flags()
+	local t = {}
+	if IsMoveState("mcSprint") then
+		t[#t + 1] = "sprint"
+	end
+	if IsMoveState("mcAnyMove") then
+		t[#t + 1] = "move"
+	end
+	if IsMoveState("mcCrouch") then
+		t[#t + 1] = "crouch"
+	end
+	if IsMoveState("mcJump") then
+		t[#t + 1] = "jump"
+	end
+	return #t > 0 and table.concat(t, "+") or "still"
+end
+
+-- one-line snapshot of everything we need
+function snapshot()
+	local a = db.actor
+	local m = GetActorMenu()
+	local menu_shown = (m and m:IsShown()) and true or false
+	local menu_mode = (actor_menu and actor_menu.get_last_mode and actor_menu.get_last_mode()) or -1
+	local slot = (a and a:active_slot()) or -1
+	local det = a and a:active_detector()
+	local det_sec = (det and det:section()) or "none"
+
+	local lam2_run = (lam2 and lam2.is_running and lam2.is_running()) and true or false
+	local lam2_tag = "none"
+	if lam2_run and lam2.get_current_action then
+		local act = lam2.get_current_action()
+		lam2_tag = (act and act.tag) or "?"
+	end
+
+	local ea_used = (enhanced_animations and enhanced_animations.used_item) and true or false
+	local drv = magazines and magazines.get_load_driver and magazines.get_load_driver()
+	local drv_anim = (drv and drv.is_animating and drv.is_animating()) and true or false
+	local hol = magazines and magazines.get_holster_slot and magazines.get_holster_slot()
+	local det_hol = magazines and magazines.is_detector_holstered and magazines.is_detector_holstered()
+
+	return string.format(
+		"tg=%s menu=%s(mode=%s) slot=%s det=%s move=%s lam2=%s(%s) ea_used=%s drv_anim=%s holster=%s det_hol=%s",
+		tostring(time_global()),
+		tostring(menu_shown),
+		tostring(menu_mode),
+		tostring(slot),
+		det_sec,
+		move_flags(),
+		tostring(lam2_run),
+		lam2_tag,
+		tostring(ea_used),
+		tostring(drv_anim),
+		tostring(hol),
+		tostring(det_hol)
+	)
+end
+
+-- print the Lua call stacktrace
+local function log_trace()
+	if not (debug and debug.traceback) then
+		printf("%s stack: <no debug lib>", PREFIX)
+		return
+	end
+	local ok, tb = pcall(debug.traceback, "", 2)
+	if not ok or type(tb) ~= "string" then
+		printf("%s stack: <traceback failed>", PREFIX)
+		return
+	end
+	for line in tb:gmatch("[^\r\n]+") do
+		printf("%s   %s", PREFIX, (line:gsub("^%s+", "")))
+	end
+end
+
+-- called from magazines.do_interrupt the instant a LIVE mag load is killed
+function note_interrupt()
+	if not is_enabled() then
+		armed_reason = nil
+		return
+	end
+	local reason = armed_reason
+	if reason and (time_global() - armed_tg) > ARM_TTL then
+		reason = "UNKNOWN/EXTERNAL (stale arm was: " .. tostring(reason) .. ")"
+	elseif not reason then
+		reason = "UNKNOWN/EXTERNAL"
+	end
+	armed_reason = nil
+
+	printf("%s !!!!! FIELD LOAD CANCELLED !!!!!", PREFIX)
+	printf("%s reason=%s", PREFIX, tostring(reason))
+	printf("%s state: %s", PREFIX, snapshot())
+	log_trace()
+end
+
+function note_blocked()
+	if not is_enabled() then
+		return
+	end
+	printf("%s ..... EXTERNAL CANCEL BLOCKED .....", PREFIX)
+	printf("%s state: %s", PREFIX, snapshot())
+	log_trace()
+end
+
+-- called from magazines.action_start_magload so the log pairs a start with its cancel
+function note_start()
+	armed_reason = nil
+	if not is_enabled() then
+		return
+	end
+	printf("%s ----- field load START -----", PREFIX)
+	printf("%s state: %s", PREFIX, snapshot())
+end
